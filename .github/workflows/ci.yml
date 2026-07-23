@@ -12,5 +12,6 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
-      - run: npm install --no-audit --no-fund typescript@^6
+      - run: npm install
       - run: npx tsc --noEmit -p tsconfig.json
+      - run: npx vitest run

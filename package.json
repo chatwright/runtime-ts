@@ -13,10 +13,13 @@
   "main": "src/index.ts",
   "types": "src/index.ts",
   "scripts": {
-    "typecheck": "tsc --noEmit -p tsconfig.json"
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "vitest run"
   },
   "dependencies": {},
   "devDependencies": {
-    "typescript": "^6.0.3"
+    "ajv": "^8.17.1",
+    "typescript": "^6.0.3",
+    "vitest": "^3.2.4"
   }
 }

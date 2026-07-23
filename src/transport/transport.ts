@@ -11,6 +11,8 @@
  * directly.
  */
 
+import { IframeHost, type IframeHostAttachment, type IframeHostOptions } from "../protocol/iframe-host.js";
+
 /**
  * A single method call a bot makes against the emulated platform (for
  * example a Telegram Bot API `sendMessage` call), as delivered to a
@@ -52,34 +54,42 @@ export interface BotTransport {
  * envelope handshake, channel handoff and steady-state traffic described in
  * {@link "../protocol/envelope.js"}.
  *
- * @remarks Scaffold — specified in research item I-68.
- *
- * No construction logic exists yet; the constructor is a placeholder that
- * intentionally throws so this class cannot be mistaken for a working
- * transport before I-68 lands.
+ * @remarks
+ * A thin {@link BotTransport}-shaped wrapper over {@link IframeHost}, which
+ * owns the actual handshake, port management and call correlation (see
+ * `../protocol/iframe-host.js` for the full contract, including the
+ * DOM-free `"port"` attachment used by this package's own tests). This
+ * class exists only so callers that think in terms of "the iframe
+ * transport" can import it from the transport module the scaffold
+ * originally named, without needing to know `IframeHost` is where the
+ * implementation actually lives.
  */
 export class IframeTransport implements BotTransport {
-  constructor() {
-    throw new Error(
-      "IframeTransport is a scaffold stub — see research item I-68 " +
-        "(chatwright/chatwright spec/research/knowledge-platform.md)",
-    );
+  private readonly host: IframeHost;
+
+  constructor(options: IframeHostOptions, attachment: IframeHostAttachment) {
+    this.host = new IframeHost(options, attachment);
   }
 
-  deliverUpdate(_update: unknown): void {
-    throw new Error("not implemented — scaffold stub, see I-68");
+  /** Whether the handshake has completed and a steady-state port is active. */
+  get connected(): boolean {
+    return this.host.connected;
   }
 
-  onCall(_handler: (call: BotCall) => void): void {
-    throw new Error("not implemented — scaffold stub, see I-68");
+  deliverUpdate(update: unknown): void {
+    this.host.deliverUpdate(update);
   }
 
-  respond(_id: string, _result: unknown): void {
-    throw new Error("not implemented — scaffold stub, see I-68");
+  onCall(handler: (call: BotCall) => void): void {
+    this.host.onCall(handler);
+  }
+
+  respond(id: string, result: unknown): void {
+    this.host.respond(id, result);
   }
 
   close(): void {
-    throw new Error("not implemented — scaffold stub, see I-68");
+    this.host.close();
   }
 }
 

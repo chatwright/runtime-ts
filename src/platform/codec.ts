@@ -27,7 +27,7 @@
  * `capabilities` lists the capability keys (decision
  * {@link https://github.com/chatwright/chatwright/blob/main/spec/decisions/0011-executable-knowledge-graph.md | 0011})
  * this codec's emulation honestly supports — the same dotted-path
- * vocabulary a {@link "../protocol/envelope.js".HelloAckMessage} declares
+ * vocabulary a {@link "../protocol/envelope.js".HelloMessage} declares
  * for a bot. Fidelity is declared, never assumed (decision 0008): a
  * capability key absent from this list must be treated as unsupported by
  * every consumer, not silently approximated.

@@ -1,0 +1,1253 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://chatwright.dev/formats/run-bundle/v1/schema.json",
+  "$defs": {
+    "ActorActionOutcome": {
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "",
+            "skipped-invalid",
+            "executed",
+            "executed-no-effect",
+            "resolution-failed",
+            "task-completed",
+            "task-given-up",
+            "blocked-constraint-violation",
+            "overshoot-probe"
+          ]
+        },
+        "detail": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "kind",
+        "detail"
+      ]
+    },
+    "ActorLoopEvent": {
+      "properties": {
+        "index": {
+          "type": "integer"
+        },
+        "at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "taskId": {
+          "type": "string"
+        },
+        "observationSequence": {
+          "type": "integer"
+        },
+        "proposal": {
+          "$ref": "#/$defs/ActorProposal"
+        },
+        "usage": {
+          "$ref": "#/$defs/ActorUsage"
+        },
+        "validation": {
+          "$ref": "#/$defs/ActorValidationOutcome"
+        },
+        "action": {
+          "$ref": "#/$defs/ActorActionOutcome"
+        },
+        "proposeError": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "index",
+        "at",
+        "taskId",
+        "observationSequence",
+        "proposal",
+        "usage",
+        "validation",
+        "action"
+      ]
+    },
+    "ActorProposal": {
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "",
+            "send-text",
+            "click",
+            "task-done",
+            "give-up"
+          ]
+        },
+        "text": {
+          "type": "string"
+        },
+        "actionId": {
+          "type": "string"
+        },
+        "observationSequence": {
+          "type": "integer"
+        },
+        "rationale": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "kind",
+        "text",
+        "actionId",
+        "observationSequence",
+        "rationale"
+      ]
+    },
+    "ActorUsage": {
+      "properties": {
+        "model": {
+          "type": "string"
+        },
+        "inputTokens": {
+          "type": "integer"
+        },
+        "outputTokens": {
+          "type": "integer"
+        },
+        "latencyNanoseconds": {
+          "type": "integer"
+        },
+        "cost": {
+          "type": "number"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "model",
+        "inputTokens",
+        "outputTokens",
+        "latencyNanoseconds"
+      ]
+    },
+    "ActorValidationOutcome": {
+      "properties": {
+        "checked": {
+          "type": "boolean"
+        },
+        "verdict": {
+          "type": "string",
+          "enum": [
+            "",
+            "fresh",
+            "stale"
+          ]
+        },
+        "reason": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "checked",
+        "verdict",
+        "reason"
+      ]
+    },
+    "BundleAIGoalSection": {
+      "properties": {
+        "goal": {
+          "$ref": "#/$defs/GoalGoal"
+        },
+        "actorId": {
+          "type": "string"
+        },
+        "events": {
+          "oneOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/ActorLoopEvent"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "observations": {
+          "oneOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/BundleRetainedObservation"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "report": {
+          "$ref": "#/$defs/CampaignReport"
+        },
+        "evidence": {
+          "items": {
+            "$ref": "#/$defs/DatastateEvidence"
+          },
+          "type": "array"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "goal",
+        "actorId",
+        "events",
+        "observations",
+        "report"
+      ]
+    },
+    "BundleActor": {
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "platformIdentities": {
+          "additionalProperties": {
+            "$ref": "#/$defs/BundlePlatformIdentity"
+          },
+          "type": "object"
+        },
+        "provider": {
+          "$ref": "#/$defs/BundleActorProvider"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "id",
+        "type"
+      ]
+    },
+    "BundleActorProvider": {
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "modelIds": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "BundleAnchor": {
+      "properties": {
+        "chatId": {
+          "type": "integer"
+        },
+        "entryIndex": {
+          "type": "integer"
+        },
+        "messageId": {
+          "type": "integer"
+        },
+        "version": {
+          "type": "integer"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "chatId",
+        "entryIndex"
+      ]
+    },
+    "BundleAnnotation": {
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "anchor": {
+          "$ref": "#/$defs/BundleAnchor"
+        },
+        "author": {
+          "$ref": "#/$defs/BundleAuthor"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "text": {
+          "type": "string"
+        },
+        "replyTo": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "id",
+        "anchor",
+        "createdAt",
+        "text"
+      ]
+    },
+    "BundleAuthor": {
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "email": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "BundleBookmark": {
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "anchor": {
+          "$ref": "#/$defs/BundleAnchor"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "id",
+        "title",
+        "anchor"
+      ]
+    },
+    "BundleChatBoundary": {
+      "properties": {
+        "chatId": {
+          "type": "integer"
+        },
+        "firstEntry": {
+          "type": "integer"
+        },
+        "entryCount": {
+          "type": "integer"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "chatId",
+        "firstEntry",
+        "entryCount"
+      ]
+    },
+    "BundleChatJournal": {
+      "properties": {
+        "chatId": {
+          "type": "integer"
+        },
+        "entries": {
+          "oneOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/PlatformJournalEntry"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "chatId",
+        "entries"
+      ]
+    },
+    "BundleJournalBoundary": {
+      "properties": {
+        "chats": {
+          "oneOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/BundleChatBoundary"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "chats"
+      ]
+    },
+    "BundleMetadata": {
+      "properties": {
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "chatwrightVersion": {
+          "type": "string"
+        },
+        "author": {
+          "$ref": "#/$defs/BundleAuthor"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "createdAt"
+      ]
+    },
+    "BundlePart": {
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "journalBoundary": {
+          "$ref": "#/$defs/BundleJournalBoundary"
+        },
+        "aiGoal": {
+          "$ref": "#/$defs/BundleAIGoalSection"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "id",
+        "kind",
+        "journalBoundary"
+      ]
+    },
+    "BundlePlatformIdentity": {
+      "properties": {
+        "userId": {
+          "type": "integer"
+        },
+        "username": {
+          "type": "string"
+        },
+        "firstName": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "userId"
+      ]
+    },
+    "BundleRetainedObservation": {
+      "properties": {
+        "sequence": {
+          "type": "integer"
+        },
+        "observation": {
+          "$ref": "#/$defs/ObserveObservation"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "sequence",
+        "observation"
+      ]
+    },
+    "BundleRun": {
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "platform": {
+          "type": "string"
+        },
+        "endpointProfile": {
+          "type": "string"
+        },
+        "actors": {
+          "oneOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/BundleActor"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "chats": {
+          "oneOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/BundleChatJournal"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "parts": {
+          "oneOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/BundlePart"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "bookmarks": {
+          "items": {
+            "$ref": "#/$defs/BundleBookmark"
+          },
+          "type": "array"
+        },
+        "annotations": {
+          "items": {
+            "$ref": "#/$defs/BundleAnnotation"
+          },
+          "type": "array"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "id",
+        "platform",
+        "endpointProfile",
+        "actors",
+        "chats",
+        "parts"
+      ]
+    },
+    "CampaignAggregateUsage": {
+      "properties": {
+        "inputTokens": {
+          "type": "integer"
+        },
+        "outputTokens": {
+          "type": "integer"
+        },
+        "cost": {
+          "type": "number"
+        },
+        "callCount": {
+          "type": "integer"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "inputTokens",
+        "outputTokens",
+        "callCount"
+      ]
+    },
+    "CampaignEvidence": {
+      "properties": {
+        "observationSequences": {
+          "items": {
+            "type": "integer"
+          },
+          "type": "array"
+        },
+        "loopEventIndexes": {
+          "items": {
+            "type": "integer"
+          },
+          "type": "array"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "CampaignFinding": {
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "verified-defect",
+            "ai-navigation-failure",
+            "coverage-gap",
+            "actor-overshoot",
+            "constraint-violation"
+          ]
+        },
+        "taskId": {
+          "type": "string"
+        },
+        "summary": {
+          "type": "string"
+        },
+        "evidence": {
+          "$ref": "#/$defs/CampaignEvidence"
+        },
+        "confidence": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "kind",
+        "taskId",
+        "summary",
+        "evidence"
+      ]
+    },
+    "CampaignReport": {
+      "properties": {
+        "schemaVersion": {
+          "type": "integer"
+        },
+        "goalId": {
+          "type": "string"
+        },
+        "goalTitle": {
+          "type": "string"
+        },
+        "stopReason": {
+          "type": "string"
+        },
+        "steps": {
+          "type": "integer"
+        },
+        "cost": {
+          "type": "number"
+        },
+        "elapsedNanoseconds": {
+          "type": "integer"
+        },
+        "tasks": {
+          "oneOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/CampaignTaskOutcome"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "findings": {
+          "oneOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/CampaignFinding"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "usage": {
+          "$ref": "#/$defs/CampaignAggregateUsage"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "schemaVersion",
+        "goalId",
+        "goalTitle",
+        "stopReason",
+        "steps",
+        "elapsedNanoseconds",
+        "tasks",
+        "findings",
+        "usage"
+      ]
+    },
+    "CampaignTaskOutcome": {
+      "properties": {
+        "taskId": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "successCriteria": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string"
+        },
+        "attempted": {
+          "type": "boolean"
+        },
+        "failureCount": {
+          "type": "integer"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "taskId",
+        "status",
+        "attempted",
+        "failureCount"
+      ]
+    },
+    "DatastateEvidence": {
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "attachmentPoint": {
+          "type": "string"
+        },
+        "holder": {
+          "type": "string"
+        },
+        "query": {
+          "type": "string"
+        },
+        "params": {
+          "oneOf": [
+            {
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "outcome": {
+          "type": "string"
+        },
+        "failureMessage": {
+          "type": "string"
+        },
+        "totalRows": {
+          "type": "integer"
+        },
+        "returnedRows": {
+          "type": "integer"
+        },
+        "truncated": {
+          "type": "boolean"
+        },
+        "preview": {
+          "oneOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/DatastateRow"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "redactedFields": {
+          "oneOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "excludedFields": {
+          "oneOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "name",
+        "attachmentPoint",
+        "holder",
+        "query",
+        "params",
+        "outcome",
+        "failureMessage",
+        "totalRows",
+        "returnedRows",
+        "truncated",
+        "preview",
+        "redactedFields",
+        "excludedFields"
+      ]
+    },
+    "DatastateRow": {
+      "type": "object"
+    },
+    "GoalBudgets": {
+      "properties": {
+        "maxSteps": {
+          "type": "integer"
+        },
+        "maxDurationNanoseconds": {
+          "type": "integer"
+        },
+        "maxRepeatedFailures": {
+          "type": "integer"
+        },
+        "maxCost": {
+          "oneOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "maxSteps",
+        "maxDurationNanoseconds",
+        "maxRepeatedFailures",
+        "maxCost"
+      ]
+    },
+    "GoalGoal": {
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "tasks": {
+          "oneOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/GoalTask"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "constraints": {
+          "oneOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "budgets": {
+          "$ref": "#/$defs/GoalBudgets"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "id",
+        "title",
+        "description",
+        "tasks",
+        "constraints",
+        "budgets"
+      ]
+    },
+    "GoalTask": {
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "dependsOn": {
+          "oneOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "successCriteria": {
+          "type": "string"
+        },
+        "milestones": {
+          "oneOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "id",
+        "title",
+        "dependsOn",
+        "successCriteria",
+        "milestones"
+      ]
+    },
+    "ObserveAvailableAction": {
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        },
+        "seenAt": {
+          "type": "integer"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "id",
+        "label",
+        "seenAt"
+      ]
+    },
+    "ObserveChange": {
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "new-message",
+            "edited-message",
+            "actions-changed"
+          ]
+        },
+        "messageId": {
+          "type": "string"
+        },
+        "actor": {
+          "type": "string",
+          "enum": [
+            "user",
+            "bot"
+          ]
+        },
+        "previousVersion": {
+          "type": "integer"
+        },
+        "version": {
+          "type": "integer"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "kind",
+        "messageId",
+        "actor",
+        "previousVersion",
+        "version"
+      ]
+    },
+    "ObserveChatRef": {
+      "properties": {
+        "chatId": {
+          "type": "integer"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "chatId"
+      ]
+    },
+    "ObserveObservation": {
+      "properties": {
+        "sequence": {
+          "type": "integer"
+        },
+        "previousSequence": {
+          "type": "integer"
+        },
+        "chat": {
+          "$ref": "#/$defs/ObserveChatRef"
+        },
+        "messages": {
+          "oneOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/ObserveVisibleMessage"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "changes": {
+          "oneOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/ObserveChange"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "sequence",
+        "previousSequence",
+        "chat",
+        "messages",
+        "changes"
+      ]
+    },
+    "ObserveVisibleMessage": {
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "version": {
+          "type": "integer"
+        },
+        "edited": {
+          "type": "boolean"
+        },
+        "actor": {
+          "type": "string",
+          "enum": [
+            "user",
+            "bot"
+          ]
+        },
+        "text": {
+          "type": "string"
+        },
+        "actions": {
+          "oneOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/ObserveAvailableAction"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "id",
+        "version",
+        "edited",
+        "actor",
+        "text",
+        "actions"
+      ]
+    },
+    "PlatformAction": {
+      "properties": {
+        "label": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "url": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "label",
+        "id",
+        "url"
+      ]
+    },
+    "PlatformJournalEntry": {
+      "properties": {
+        "direction": {
+          "type": "string",
+          "enum": [
+            "user",
+            "bot"
+          ]
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "message",
+            "action",
+            "uncaptured"
+          ]
+        },
+        "messageId": {
+          "type": "integer"
+        },
+        "refMessageId": {
+          "type": "integer"
+        },
+        "version": {
+          "type": "integer"
+        },
+        "text": {
+          "type": "string"
+        },
+        "actions": {
+          "oneOf": [
+            {
+              "items": {
+                "items": {
+                  "$ref": "#/$defs/PlatformAction"
+                },
+                "type": "array"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "method": {
+          "type": "string"
+        },
+        "at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "fromId": {
+          "type": "integer"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "direction",
+        "kind",
+        "messageId",
+        "refMessageId",
+        "version",
+        "text",
+        "actions",
+        "method",
+        "at",
+        "fromId"
+      ]
+    }
+  },
+  "$comment": "Enum-constrained string fields reflected from this module's Go string-const enums (Direction, JournalEntryKind, Verdict, Actor, ChangeKind, ProposalKind, ActionOutcomeKind, FindingKind) are closed: schema validation rejects any value outside the listed set. This is stricter than bundle.Read itself, which applies no such check — a hand-edited bundle carrying an unrecognised value still reads. Bookmark/Annotation references (Annotation.replyTo, Anchor) are never validated by this schema or by bundle.Read — see bundle.Annotation's doc comment: a dangling reference is a consumer's concern, not a format violation. Every object also rejects properties this schema does not declare (additionalProperties: false), which is stricter than bundle.Read's own forward-compatible decoding (it ignores unknown fields) — this schema describes today's shape, not a compatibility promise for tomorrow's.",
+  "properties": {
+    "format": {
+      "type": "string"
+    },
+    "metadata": {
+      "$ref": "#/$defs/BundleMetadata"
+    },
+    "runs": {
+      "oneOf": [
+        {
+          "items": {
+            "$ref": "#/$defs/BundleRun"
+          },
+          "type": "array"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  },
+  "additionalProperties": false,
+  "type": "object",
+  "required": [
+    "format",
+    "metadata",
+    "runs"
+  ]
+}

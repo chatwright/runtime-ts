@@ -8,13 +8,17 @@
  * The runtime and an iframe-hosted bot exchange three message shapes over
  * three phases:
  *
- * 1. **Handshake** — on load the host `window` sends a {@link HelloMessage}
- *    to the bot's `window` via `postMessage`; the bot answers with a
- *    {@link HelloAckMessage} declaring its protocol version, platform and
+ * 1. **Handshake — the bot speaks first.** Once its listener is attached and
+ *    it is ready to serve, the bot posts a {@link HelloMessage} to
+ *    `window.parent`, declaring its protocol version, platform and
  *    capability keys (decision
- *    {@link https://github.com/chatwright/chatwright/blob/main/spec/decisions/0011-executable-knowledge-graph.md | 0011}).
- *    The host validates the bot's origin against the manifest's declared
- *    origin at this point only — origin is never re-checked per message.
+ *    {@link https://github.com/chatwright/chatwright/blob/main/spec/decisions/0011-executable-knowledge-graph.md | 0011}) —
+ *    what it exercises, informative for fidelity display, never an access
+ *    control. The host validates `event.origin` against the origin the
+ *    bot's manifest declares (or the origin the operator configured) and
+ *    replies to that exact origin with a {@link HelloAckMessage}, which
+ *    carries no capabilities of its own. Origin is checked at handshake
+ *    only — never re-validated per message.
  * 2. **Channel handoff** — after the handshake the host transfers a
  *    dedicated `MessagePort` to the bot; all subsequent traffic moves off
  *    `window.postMessage` and onto the port, isolating each embedded bot
@@ -50,35 +54,40 @@
 export const PROTOCOL_VERSION = "1";
 
 /**
- * Sent by the host to an iframe-hosted bot on load, opening the handshake.
+ * Sent by an iframe-hosted bot to `window.parent` as soon as its listener is
+ * attached and it is ready to serve, opening the handshake — the bot speaks
+ * first; the host never addresses a bot it has not heard from.
  *
  * @remarks
- * `platform` names the platform the host expects the bot to speak (for
- * example `"telegram"`); the bot's {@link HelloAckMessage} confirms or
- * disputes it.
+ * `platform` names the platform the bot speaks (for example `"telegram"`);
+ * the host's {@link IframeHostOptions} (see
+ * `../protocol/iframe-host.js`) states which platform it expects, but this
+ * envelope layer does not itself gate on a mismatch — see I-68.
+ * `capabilities` is a list of capability keys (decision
+ * {@link https://github.com/chatwright/chatwright/blob/main/spec/decisions/0011-executable-knowledge-graph.md | 0011})
+ * the bot declares it exercises — the same dotted-path vocabulary used by
+ * platform emulator fidelity tables and compatibility data. It is
+ * informative for fidelity display, never an access control; an empty list
+ * is a legitimate declaration of "no capabilities beyond the platform
+ * baseline", never an omission to be inferred.
  */
 export interface HelloMessage {
   readonly chatwright: "hello";
   readonly protocolVersion: string;
   readonly platform: string;
+  readonly capabilities: readonly string[];
 }
 
 /**
- * Sent by an iframe-hosted bot in reply to a {@link HelloMessage},
- * completing the handshake before channel handoff.
- *
- * @remarks
- * `capabilities` is a list of capability keys (decision 0011) the bot
- * declares fidelity for — the same dotted-path vocabulary used by platform
- * emulator fidelity tables and compatibility data. An empty list is a
- * legitimate declaration of "no capabilities beyond the platform baseline",
- * never an omission to be inferred.
+ * Sent by the host in reply to a validated {@link HelloMessage}, completing
+ * the handshake and carrying the transferred `MessagePort` that all
+ * steady-state traffic moves onto. It declares no capabilities of its own —
+ * capabilities are a property of the bot, not the host.
  */
 export interface HelloAckMessage {
   readonly chatwright: "hello-ack";
   readonly protocolVersion: string;
   readonly platform: string;
-  readonly capabilities: readonly string[];
 }
 
 /**
@@ -104,4 +113,18 @@ export interface Envelope {
   readonly kind: "update" | "call" | "result";
   readonly platform: string;
   readonly payload: unknown;
+}
+
+/**
+ * The shape of a `"call"` envelope's `payload` — the one place the envelope
+ * layer itself (rather than a {@link "../platform/codec.js".PlatformCodec})
+ * knows something about `payload`'s structure, because the bot-protocol
+ * README defines it directly: "`payload` is `{"method": "sendMessage",
+ * "params": { }}` — the platform method name and its parameters exactly as
+ * the bot would POST them to the real API." `params` itself stays opaque,
+ * platform-native JSON.
+ */
+export interface CallPayload {
+  readonly method: string;
+  readonly params: unknown;
 }

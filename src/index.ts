@@ -2,14 +2,20 @@
  * `@chatwright/runtime` — the browser runtime of Chatwright.
  *
  * @remarks
- * Scaffold status: interfaces and protocol types only. See the package
- * README for what this package is and research items I-66..I-68 in
+ * First slice: the iframe transport (`IframeHost`), the Telegram codec
+ * (text, inline buttons, edits) and the `Session` orchestrator that ties
+ * them together and produces run-bundle v1 documents. See the package
+ * README for the fidelity list and research items I-66..I-68 in
  * {@link https://github.com/chatwright/chatwright/blob/main/spec/research/knowledge-platform.md | knowledge-platform.md}
- * for the design sessions that turn these seams into a working runtime.
+ * for what remains deliberately deferred.
  */
 
 export * from "./protocol/envelope.js";
+export * from "./protocol/iframe-host.js";
 export * from "./transport/transport.js";
 export * from "./platform/codec.js";
 export * from "./journal/journal.js";
+export * from "./journal/in-memory-journal.js";
+export * from "./telegram/codec.js";
+export * from "./session/session.js";
 export * from "./runtime/runtime.js";
