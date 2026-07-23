@@ -5,6 +5,12 @@ orchestrator embedded in the Studio Playground/player component, and the
 second implementation of the runtime concept alongside
 [`chatwright.dev/runtime`](https://github.com/chatwright/runtime-go) (Go).
 
+Naming note: the repository is **runtime-ts** and the package is
+**`@chatwright/runtime`** — repositories carry the language suffix because
+they share one namespace; package names don't, because each registry is
+already language-scoped. The Go sibling follows the same rule: repository
+runtime-go, module `chatwright.dev/runtime`.
+
 ## Status: scaffold
 
 This repository is **interfaces and protocol types only**. There is no
