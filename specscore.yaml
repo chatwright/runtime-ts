@@ -1,0 +1,7 @@
+# SpecScore Repo Config Schema: https://specscore.md/repo-config
+
+project:
+    title: runtime-ts
+    host: github.com
+    org: chatwright
+    repo: runtime-ts
