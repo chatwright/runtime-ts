@@ -1,9 +1,10 @@
 # `runtime-ts` architecture — first slice
 
-**Status:** first real slice (iframe transport + Telegram codec: text, inline
-buttons, edits). Everything below describes what is actually implemented in
-`src/` today, not an aspiration — see [README.md](../README.md#fidelity)
-for the fidelity list and [`docs/runtime-parity.md`](https://github.com/chatwright/chatwright/blob/main/docs/runtime-parity.md)
+**Status:** iframe transport + Telegram codec (text, inline buttons, edits) +
+the deterministic expect layer (`src/expect/`). Everything below describes
+what is actually implemented in `src/` today, not an aspiration — see
+[README.md](../README.md#fidelity) for the fidelity list and
+[`docs/runtime-parity.md`](https://github.com/chatwright/chatwright/blob/main/docs/runtime-parity.md)
 (decision 0015) for how this slice compares to `runtime-go`.
 
 ## Session model
@@ -143,6 +144,140 @@ journal entry `at` fields and a bundle's `metadata.createdAt` all take a
 `Clock` instead of calling `Date.now()`/`new Date()` directly, so tests can
 supply a deterministic or monotonically-advancing clock.
 
+## The expect layer — deterministic scenario verbs
+
+[`src/expect/`](../src/expect/) is a fourth piece layered on top of
+`Session`, not one of decision 0012's three seams itself: the deterministic
+scenario-verb API a test author actually writes against —
+`chatOf(session, chatId, user)` returning a `Chat` handle
+(`sendText`/`click`/`expectBotMessage`/`expectEdited`), each
+`expectBotMessage`/`expectEdited` call resolving to a `BotMessageExpectation`
+(`text`/`expectText`/`expectActions`/`within`). It is the TypeScript twin of
+`runtime-go`'s `cw` package
+([`cw/chat.go`](https://github.com/chatwright/runtime-go/blob/main/cw/chat.go),
+[`cw/expect.go`](https://github.com/chatwright/runtime-go/blob/main/cw/expect.go)),
+ported as an algorithm — never shared as code, per decision 0012 — and is
+this repository's answer to the founder's canonical scenario named in
+research item I-71: "expect a bot message with exactly buttons [Yes, No];
+user clicks [Yes]", which is exactly `src/expect/chat.test.ts`'s first test.
+
+### Design
+
+- **Built entirely on `Session.journal(chatId)`.** `expect/` never talks to
+  the transport, the codec or `IframeHost` directly — `Chat.sendText`/
+  `click` call `session.submitText`/`submitClick`, and
+  `expectBotMessage`/`expectEdited` read and subscribe to the `Journal`
+  `session.journal(chatId)` already returns. This keeps the expect layer a
+  pure consumer of the same public seam any other caller has.
+- **Subscribe-based waiting, never polling** ([`src/expect/wait.ts`](../src/expect/wait.ts)).
+  `waitForCondition(journal, compute, timeoutMs, onTimeout)` is the async
+  twin of `runtime-go`'s `Emulator.WaitForMessage`/`WaitForEdit`: check
+  `compute()` once immediately (the result may already be in the journal),
+  otherwise subscribe and re-run `compute()` — a pure function of the whole
+  journal, matching Go's re-scan-on-every-wake shape exactly — after every
+  subsequent append, racing a `setTimeout(timeoutMs)` deadline. The only
+  timer anywhere in this layer is that one deadline; there is no interval,
+  no re-check loop.
+- **The consumption cursor, ported exactly.** `Chat` tracks `consumed`
+  (bot messages already handed out) precisely like Go's `cw.Chat`:
+  `expectBotMessage` calls `nthOutboundMessage(entries, consumed)` — a
+  direct port of `nthOutboundMessageLocked` — which finds the
+  `(consumed + 1)`-th distinct bot message id in first-seen order and
+  returns its *current* (possibly already-edited) content, then increments
+  `consumed` only once that wait actually resolves (never on a timeout).
+  `expectEdited(ref)` instead calls `latestEntryForMessage` for `ref`'s
+  specific `messageId` and waits for a `version` strictly greater than
+  `ref.version` — and, matching Go precisely, never touches `consumed` at
+  all.
+- **Transcript-in-failure, ported as an algorithm.**
+  [`src/expect/transcript.ts`](../src/expect/transcript.ts)'s
+  `renderTranscript` is a direct algorithmic port of
+  `Emulator.Transcript`/`renderTranscript` in `runtime-go`'s
+  `telegram/emulator.go`: chronological, one line per message, an edit
+  rewriting its message's existing line in place (never appending a new
+  one) so a message keeps its conversational position. Every `Error` this
+  layer throws or rejects with embeds the chat's transcript at the moment
+  of failure, mirroring Go's `t.Fatalf(...emu.Transcript(chatID))`
+  convention — a failure is self-contained, never "none arrived" with no
+  further context.
+- **`chatOf` aliases by `(session, chatId)`**, exactly like Go's
+  `Chatwright.PrivateChat` aliases by user identity: calling `chatOf` again
+  for a chat already addressed returns the same `Chat` — same cursor, same
+  latency baseline — rather than a fresh one that would silently reset both.
+
+### Deliberate deviations from `runtime-go`
+
+Recorded here, not just in code comments, per decision 0008 ("fidelity is
+declared, never assumed") — also reflected in the fidelity table in
+[README.md](../README.md#fidelity) and the cross-repo
+[runtime parity register](https://github.com/chatwright/chatwright/blob/main/docs/runtime-parity.md):
+
+- **`within(ms)` asserts; it does not extend the wait.** Go's `BotMessage`
+  is returned by `ExpectBotMessage()` *before* it resolves — it is a lazy
+  handle whose `resolve()` only runs the first time an assertion method is
+  called on it — so `Within(d)` can be called on that not-yet-resolved
+  handle and, if `d` exceeds the configured safety timeout, extend how long
+  the wait itself runs before falling back to a bare timeout. This
+  runtime's `expectBotMessage`/`expectEdited` are `async` functions that
+  only ever hand back a `BotMessageExpectation` *after* the message has
+  actually arrived (there is no useful "not yet resolved" JavaScript object
+  to return synchronously from an inherently asynchronous wait), so there is
+  nothing left unresolved to attach a budget to beforehand. `within(ms)` is
+  therefore a pure post-arrival assertion against the latency already
+  recorded when the promise settled; a caller who wants a generous
+  observation window passes a larger `timeoutMs` to `expectBotMessage`/
+  `expectEdited` directly instead. One consequence: Go's "`Within` called
+  after resolution is a usage error" guard has no equivalent — it is
+  structurally impossible to call `within()` before arrival here, since the
+  object it lives on doesn't exist until arrival.
+- **Latency is measured in real wall-clock time** (`Date.now()`) inside
+  `Chat`, independent of whatever `Session` was constructed with as its
+  `Clock` for journal-entry/bundle timestamps. `runtime-go` has no
+  injectable clock at all (the emulator always calls `time.Now()`), so real
+  wall-clock time is the closest equivalent; it also means latency
+  assertions behave sensibly even against a `Session` built with a
+  fixed/tick `Clock` for bundle-determinism (as `session.test.ts` does),
+  where journal-entry timestamps alone would be meaningless for measuring
+  elapsed real time.
+- **`click(actionIdOrLabel)` targets the chat's most recently resolved
+  message**, not an explicit `(row, col)` coordinate the way Go's
+  `BotMessage.ExpectAction(row, col).Click()` does. `Chat` remembers the
+  `messageId` and action rows from whichever of `expectBotMessage`/
+  `expectEdited` resolved most recently and searches its rows for an action
+  whose id (Telegram `callback_data`) or label matches `actionIdOrLabel`.
+  This matches a Playground chat's actual UI model — a user can only click
+  a button on the bubble currently on screen — more directly than plumbing
+  coordinates through, at the cost of not supporting "click a button on an
+  older, already-superseded message" (not a real scenario need; Go's
+  coordinate API supports it only as a side effect of its own design).
+- **Naming: `expect`-prefixed assertions, and `text()` as a separate
+  getter.** `expectText`/`expectActions`/`expectEdited` versus Go's bare
+  `Text`/`ExpectAction`, and `text()` (no assertion, just returns the
+  current text) kept distinct from the `expectText(want)` assertion. Purely
+  cosmetic — no semantic difference from Go.
+
+### Testing
+
+[`src/expect/chat.test.ts`](../src/expect/chat.test.ts) follows the same
+DOM-free pattern as `session.test.ts` — a real `Session` + `IframeHost` +
+`FakeBot` over a Node `MessageChannel`, the test script itself playing the
+bot's role by issuing `bot.call(...)` calls — proving:
+
+1. **The founder's canonical case** (I-71): `expectBotMessage()` resolves to
+   a message with exactly `["Yes", "No"]` buttons; `click("Yes")` sends the
+   callback; `expectEdited(ref)` resolves to the in-place edit.
+2. A timed-out `expectBotMessage()` rejects with an `Error` whose message
+   names the safety timeout and embeds the chat's transcript.
+3. `within(ms)` throws, after a successful (late) arrival, when the
+   recorded latency exceeds the budget — and does not throw for a generous
+   budget.
+4. The consumption cursor across multiple messages: three `sendMessage`
+   calls resolve to three `expectBotMessage()` calls in order, one message
+   each, with a fourth call correctly timing out with nothing left
+   unconsumed.
+5. `chatOf` aliasing: repeated calls for the same `(session, chatId)` return
+   the identical `Chat` handle.
+
 ## Planned live-append path into the Studio player (not implemented here)
 
 The Studio player already has a deterministic, pure-fold rendering engine —
@@ -189,6 +324,12 @@ Explicitly out of scope for this slice, left to the named research items:
 - The remote-HTTPS transport (`HttpTransport`) remains an intentional
   scaffold stub — out of scope for this slice, which covers the iframe
   transport only.
+- **I-71** (portable scenario format): `src/expect/` lands the deterministic
+  verb *API* — scenarios are still written directly in TypeScript against
+  `Chat`/`BotMessageExpectation`, not against a declarative, runtime-neutral
+  file format that both `runtime-go` and `runtime-ts` could execute
+  identically. An `ExpectNoMessage`-equivalent (assert *no* reply arrives
+  within a window) is also not implemented in this slice.
 
 ## Testing
 
@@ -215,3 +356,7 @@ DOM-free, in plain Node:
   `ajv-formats` package, since this task keeps new devDependencies to
   `vitest` and `ajv` only; every other schema keyword (`type`, `required`,
   `enum`, `additionalProperties`, …) is still fully enforced.
+- [`src/expect/chat.test.ts`](../src/expect/chat.test.ts) covers the
+  deterministic expect layer over the same `Session` + `IframeHost` +
+  `FakeBot` DOM-free setup — see "Testing" under "The expect layer" above
+  for exactly what it proves.

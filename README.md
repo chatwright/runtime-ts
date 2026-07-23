@@ -11,11 +11,11 @@ they share one namespace; package names don't, because each registry is
 already language-scoped. The Go sibling follows the same rule: repository
 runtime-go, module `chatwright.dev/runtime`.
 
-## Status: first slice — iframe transport + Telegram codec slice (text, inline buttons, edits)
+## Status: iframe transport + Telegram codec + deterministic expect layer
 
 This repository has moved past interfaces-only. Working, tested code now
 exists for all three seams decision 0012 names, wired together by a
-`Session` orchestrator:
+`Session` orchestrator, plus a deterministic scenario-verb layer on top of it:
 
 - **`IframeHost`** ([`src/protocol/iframe-host.ts`](src/protocol/iframe-host.ts))
   — the host side of the iframe postMessage handshake: origin-validated
@@ -33,6 +33,16 @@ exists for all three seams decision 0012 names, wired together by a
   `toBundle()` to produce a
   [run-bundle v1](https://github.com/chatwright/chatwright/blob/main/formats/run-bundle/v1/schema.json)
   document that validates against the schema.
+- **`chatOf`/`Chat`/`BotMessageExpectation`** ([`src/expect/`](src/expect/))
+  — the deterministic expect layer: a PlaygroundChat-style handle
+  (`sendText`, `click`, `expectBotMessage`, `expectEdited`) built on
+  `Session`'s journal via subscribe-based waiting (never polling), with a
+  per-chat consumption cursor and transcript-bearing failures — the
+  TypeScript twin of `runtime-go`'s `cw` package
+  (`chatwright/runtime-go/cw/{chat,expect}.go`), ported as an algorithm per
+  decision 0012. See [Fidelity](#fidelity) below and
+  [`docs/architecture.md`](docs/architecture.md#the-expect-layer--deterministic-scenario-verbs)
+  for the full deviation list versus Go.
 
 Read [`docs/architecture.md`](docs/architecture.md) for the session model,
 how the three seams fit together, the planned (not yet built) live-append
@@ -111,6 +121,10 @@ src/
   journal/in-memory-journal.ts  InMemoryJournal + Clock/systemClock
   session/session.ts         Session orchestrator; toBundle() → run-bundle v1
   runtime/runtime.ts          ChatwrightRuntime orchestrator interface (still provisional, I-66)
+  expect/chat.ts              Chat + chatOf(): sendText/click/expectBotMessage/expectEdited, the consumption cursor
+  expect/bot-message.ts       BotMessageExpectation: text/expectText/expectActions/within
+  expect/wait.ts              subscribe-based waitForCondition() + the nth-outbound-message / latest-edit lookups
+  expect/transcript.ts        renderTranscript(): the prose embedded in every expect-layer failure
   testkit/fake-bot.ts        test-only: drives the bot side of the protocol over a MessagePort
   index.ts                   re-exports
 ```
@@ -118,7 +132,8 @@ src/
 These are the three seams decision 0012 decomposes the Go emulator's
 monolith into — platform codec, transport, journal + observation — plus the
 envelope that ties transports together, `Session` that ties the seams
-together for this slice, and `runtime/runtime.ts`'s still-provisional
+together for this slice, `expect/` that layers the deterministic scenario
+verbs on top of `Session`, and `runtime/runtime.ts`'s still-provisional
 `ChatwrightRuntime` interface for the fuller orchestrator I-66 will design.
 
 ## Shared contracts are formats, never code
@@ -146,8 +161,8 @@ fixtures, never by shared libraries.
 ## Fidelity
 
 Fidelity is declared, never assumed (decision 0008): this is exactly what
-this slice covers, checked directly against `src/telegram/codec.ts` and
-`src/protocol/iframe-host.ts` — not an aspiration. See
+this slice covers, checked directly against `src/telegram/codec.ts`,
+`src/protocol/iframe-host.ts` and `src/expect/` — not an aspiration. See
 [`docs/architecture.md`](docs/architecture.md) for the design behind each
 row and the [runtime parity register](https://github.com/chatwright/chatwright/blob/main/docs/runtime-parity.md)
 for how this compares to `runtime-go`.
@@ -170,6 +185,20 @@ for how this compares to `runtime-go`.
 | `message` (plain text) | **Supported.** |
 | `callback_query` (inline-keyboard click) | **Supported.** |
 | `edited_message`, media messages, group/channel updates | **Not implemented** in this slice. |
+
+**Deterministic scenario verbs (`src/expect/`):**
+
+| Capability | Status |
+|---|---|
+| `chatOf(session, chatId, user)` handle | **Supported.** PlaygroundChat-style: `sendText`, `click`, `expectBotMessage`, `expectEdited`. Aliased per `(session, chatId)` — repeated calls return the same handle, sharing its cursor — mirroring Go's `PrivateChat`. |
+| Consumption cursor | **Supported, matches `runtime-go`'s `cw.Chat` exactly.** Each `expectBotMessage()` consumes the next not-yet-consumed outbound message to that chat, once, in order; `expectEdited()` targets a specific message identity (`messageId` + `version`) instead and never advances the cursor. |
+| `expectBotMessage` / `expectEdited` waiting | **Supported, subscribe-based** (`Journal.subscribe`) — never polling. Default safety timeout 5s (`DEFAULT_SAFETY_TIMEOUT_MS`), overridable per call via `{timeoutMs}`. |
+| `BotMessageExpectation` assertions | **Supported:** `text()` (getter), `expectText(want)`, `expectActions(...labels)` (exact set, row-major flattened, order-sensitive), `within(ms)`. |
+| `within(ms)` latency budget | **Supported, but narrower than Go's `Within`.** Asserts against the latency already recorded when the message arrived ("after arrival"); unlike Go, it cannot retroactively extend how long `expectBotMessage`/`expectEdited` waited for that arrival — see `docs/architecture.md` for why. |
+| Transcript-in-failure | **Supported.** Every thrown `Error` embeds a chronological chat transcript (`src/expect/transcript.ts`), ported as an algorithm from `runtime-go`'s `Emulator.Transcript`/`renderTranscript`. |
+| `click(actionIdOrLabel)` | **Supported, but targets the chat's most recently resolved message**, not an explicit `(row, col)` coordinate the way Go's `BotMessage.ExpectAction(row, col).Click()` does — matches a Playground chat's UI model directly. Matches by action id (`callback_data`) first, then by visible label. |
+| `ExpectNoMessage` equivalent | **Not implemented** in this slice. |
+| Portable scenario file format | **Not implemented.** Scenarios are still written directly against the `Chat`/`BotMessageExpectation` API in TypeScript — see research item I-71. |
 
 **Transport and scope:**
 
