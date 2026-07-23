@@ -2,7 +2,8 @@
  * `Session` — the orchestrator that ties this package's three seams
  * together for one running conversation: it hands a registered bot's
  * transport ({@link "../protocol/iframe-host.js".IframeHost} or any other
- * {@link "../transport/transport.js".BotTransport}) to the Telegram codec,
+ * {@link "../transport/transport.js".BotTransport}) to its configured
+ * {@link "../platform/codec.js".PlatformCodec} (Telegram by default),
  * appends every event the codec produces to the right chat's journal, and
  * assembles the whole recording into a
  * {@link https://github.com/chatwright/chatwright/blob/main/formats/run-bundle/v1/schema.json | run-bundle v1}
@@ -11,17 +12,23 @@
  * @remarks
  * This is a deliberately small slice of the orchestration research item I-66
  * describes, not a claim to have designed the whole thing: one `Session`
- * drives one registered bot on one platform (Telegram) across as many chats
- * as callers address by `chatId`, and `toBundle()` always emits exactly one
- * run with one deterministic part spanning the whole journal. Multi-bot
- * registries, scenario execution, AI-goal parts and replay are out of scope
- * here — see `docs/architecture.md`.
+ * drives one registered bot on one platform (whichever {@link
+ * "../platform/codec.js".PlatformCodec} it is constructed with — Telegram by
+ * default, WhatsApp via `options.codec` since that codec landed) across as
+ * many chats as callers address by `chatId`, and `toBundle()` always emits
+ * exactly one run with one deterministic part spanning the whole journal.
+ * `Session` itself knows nothing platform-specific: `platform`,
+ * `platformIdentities` keys and the bot actor's wire identity all come from
+ * `options.codec`, never a hardcoded string — see {@link SessionOptions.codec}.
+ * Multi-bot registries, scenario execution, AI-goal parts and replay are out
+ * of scope here — see `docs/architecture.md`.
  */
 
 import type { BotCall, BotTransport } from "../transport/transport.js";
 import type { Journal, JournalAction, JournalEntry } from "../journal/journal.js";
 import { InMemoryJournal, systemClock, type Clock } from "../journal/in-memory-journal.js";
-import { TELEGRAM_BOT_FIRST_NAME, TELEGRAM_BOT_USER_ID, TelegramCodec, type TelegramUser } from "../telegram/codec.js";
+import type { PlatformCodec, PlatformUser } from "../platform/codec.js";
+import { TelegramCodec } from "../telegram/codec.js";
 
 /** The run-bundle v1 format identifier every bundle this package produces declares. */
 export const RUN_BUNDLE_FORMAT = "https://chatwright.dev/formats/run-bundle/v1";
@@ -44,6 +51,16 @@ export interface SessionActor {
 export interface SessionOptions {
   /** Produces "now"; defaults to the real wall clock. Inject for deterministic tests. */
   readonly clock?: Clock;
+  /**
+   * The platform codec this session drives its bot with. Defaults to a
+   * {@link TelegramCodec} constructed with this session's own `clock`. Pass
+   * a different {@link PlatformCodec} (for example `new WhatsAppCodec(...)`
+   * from `../whatsapp/codec.js`) to drive a different platform — construct
+   * it with the same `clock` passed here (or rely on the shared default) so
+   * journal timestamps and this bundle's `metadata.createdAt` stay
+   * consistent with each other.
+   */
+  readonly codec?: PlatformCodec;
   /** The run id `toBundle()` assigns. Defaults to `"run-1"`. */
   readonly runId?: string;
   /** The human-side actor roster entry. Defaults to `{id:"human", type:"scripted", name:"Human"}`. */
@@ -67,11 +84,11 @@ interface WirePlatformIdentity {
 }
 
 /**
- * Orchestrates one Telegram conversation: registers a bot transport, turns
- * `submitText`/`submitClick` calls into updates delivered to it, answers its
- * calls via {@link TelegramCodec}, journals every event per chat, and
- * assembles the recording into a run-bundle v1 document via {@link
- * Session.toBundle}.
+ * Orchestrates one conversation on one platform: registers a bot transport,
+ * turns `submitText`/`submitClick` calls into updates delivered to it,
+ * answers its calls via this session's configured {@link PlatformCodec},
+ * journals every event per chat, and assembles the recording into a
+ * run-bundle v1 document via {@link Session.toBundle}.
  */
 export class Session {
   private readonly clock: Clock;
@@ -80,7 +97,7 @@ export class Session {
   private readonly botActor: SessionActor;
   private readonly partId: string;
   private readonly partTitle: string;
-  private readonly codec: TelegramCodec;
+  private readonly codec: PlatformCodec;
 
   private transport: BotTransport | undefined;
   private readonly journals = new Map<number, InMemoryJournal>();
@@ -93,13 +110,14 @@ export class Session {
     this.botActor = options.bot ?? DEFAULT_BOT;
     this.partId = options.partId ?? "session";
     this.partTitle = options.partTitle ?? "Session transcript";
-    this.codec = new TelegramCodec(this.clock);
+    this.codec = options.codec ?? new TelegramCodec(this.clock);
   }
 
   /**
    * Registers the bot this session drives, wiring its transport's incoming
-   * calls to the Telegram codec and its answers back via `respond`. This v1
-   * slice supports exactly one bot per session — a second call throws.
+   * calls to this session's configured platform codec and its answers back
+   * via `respond`. This v1 slice supports exactly one bot per session — a
+   * second call throws.
    */
   registerBot(transport: BotTransport): void {
     if (this.transport) {
@@ -116,8 +134,8 @@ export class Session {
     });
   }
 
-  /** Delivers a user's submitted text to the registered bot as a Telegram `message` update. */
-  submitText(chatId: number, user: TelegramUser, text: string): void {
+  /** Delivers a user's submitted text to the registered bot as a platform-native message update, via this session's configured codec. */
+  submitText(chatId: number, user: PlatformUser, text: string): void {
     const transport = this.requireTransport();
     this.humanPlatformIdentity ??= toPlatformIdentity(user);
     const journal = this.journalFor(chatId);
@@ -126,12 +144,24 @@ export class Session {
   }
 
   /**
-   * Delivers a user's inline-keyboard button click to the registered bot as
-   * a Telegram `callback_query` update, targeting the bot message that
-   * carried the clicked action.
+   * Delivers a user's interactive-action click (a Telegram inline-keyboard
+   * button and platforms with an equivalent) to the registered bot as a
+   * platform-native update, targeting the bot message that carried the
+   * clicked action. Throws if this session's configured codec declares no
+   * interactive-action support — it omits {@link
+   * "../platform/codec.js".PlatformCodec.buildCallbackUpdate} entirely
+   * rather than this method silently doing nothing (WhatsApp's text-only
+   * codec is the first such case — see its module doc comment and the
+   * capability data/parity register for why).
    */
-  submitClick(chatId: number, user: TelegramUser, actionId: string, targetMessageId: number): void {
+  submitClick(chatId: number, user: PlatformUser, actionId: string, targetMessageId: number): void {
     const transport = this.requireTransport();
+    if (!this.codec.buildCallbackUpdate) {
+      throw new Error(
+        `Session.submitClick: the "${this.codec.platform}" codec declares no interactive-action support ` +
+          `(no buildCallbackUpdate) — see its capability data and the runtime parity register`,
+      );
+    }
     this.humanPlatformIdentity ??= toPlatformIdentity(user);
     const journal = this.journalFor(chatId);
     const update = this.codec.buildCallbackUpdate(chatId, user, targetMessageId, actionId, journal);
@@ -145,9 +175,10 @@ export class Session {
 
   /**
    * Assembles everything this session has recorded into a run-bundle v1
-   * document: one run, an actor roster (human + bot, each with its Telegram
-   * `platformIdentities` entry), every chat's journal, and one deterministic
-   * part whose journal boundary spans the entire recording.
+   * document: one run, an actor roster (human + bot, each with a
+   * `platformIdentities` entry keyed by this session's codec's `platform`),
+   * every chat's journal, and one deterministic part whose journal boundary
+   * spans the entire recording.
    *
    * @remarks
    * Returns `unknown` deliberately — this package does not generate types
@@ -179,7 +210,7 @@ export class Session {
       runs: [
         {
           id: this.runId,
-          platform: "telegram",
+          platform: this.codec.platform,
           endpointProfile: "platform-emulated",
           actors: [this.humanActorWire(), this.botActorWire()],
           chats,
@@ -202,18 +233,23 @@ export class Session {
       type: this.humanActor.type,
       ...(this.humanActor.name !== undefined ? { name: this.humanActor.name } : {}),
       ...(this.humanPlatformIdentity !== undefined
-        ? { platformIdentities: { telegram: this.humanPlatformIdentity } }
+        ? { platformIdentities: { [this.codec.platform]: this.humanPlatformIdentity } }
         : {}),
     };
   }
 
   private botActorWire(): Record<string, unknown> {
+    const identity = this.codec.botIdentity;
     return {
       id: this.botActor.id,
       type: this.botActor.type,
       ...(this.botActor.name !== undefined ? { name: this.botActor.name } : {}),
       platformIdentities: {
-        telegram: { userId: TELEGRAM_BOT_USER_ID, firstName: TELEGRAM_BOT_FIRST_NAME },
+        [this.codec.platform]: {
+          userId: identity.userId,
+          ...(identity.firstName !== undefined ? { firstName: identity.firstName } : {}),
+          ...(identity.username !== undefined ? { username: identity.username } : {}),
+        },
       },
     };
   }
@@ -235,7 +271,7 @@ export class Session {
   }
 }
 
-function toPlatformIdentity(user: TelegramUser): WirePlatformIdentity {
+function toPlatformIdentity(user: PlatformUser): WirePlatformIdentity {
   return {
     userId: user.id,
     ...(user.firstName !== undefined && user.firstName !== "" ? { firstName: user.firstName } : {}),

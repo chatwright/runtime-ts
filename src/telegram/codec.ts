@@ -145,6 +145,8 @@ export interface TelegramCallContext {
 export class TelegramCodec implements PlatformCodec {
   readonly platform = "telegram";
   readonly capabilities = ["messaging.buttons.inline", "messaging.message.edit"] as const;
+  /** This codec's own identity for a run-bundle actor's `platformIdentities` entry — see {@link "../platform/codec.js".PlatformCodec.botIdentity}. */
+  readonly botIdentity = { userId: TELEGRAM_BOT_USER_ID, firstName: TELEGRAM_BOT_FIRST_NAME };
 
   private readonly clock: Clock;
   private readonly nextMessageId = new Map<number, number>();

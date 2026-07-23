@@ -24,6 +24,8 @@ export function flushMacrotasks(): Promise<void> {
 export class FakeBot {
   private steady: MessagePort | undefined;
   readonly steadyMessages: Envelope[] = [];
+  /** The platform most recently declared via `sendHello`; `call()` envelopes echo it, exactly like a real bot's steady-state traffic repeats its handshake platform. */
+  private platform = "telegram";
 
   constructor(private readonly handshakePort: MessagePort) {
     this.handshakePort.addEventListener("message", (event: MessageEvent) => {
@@ -53,6 +55,7 @@ export class FakeBot {
 
   /** Posts a `hello`, opening (or resetting) the handshake. */
   sendHello(platform = "telegram", capabilities: readonly string[] = []): void {
+    this.platform = platform;
     const hello: HelloMessage = { chatwright: "hello", protocolVersion: "1", platform, capabilities };
     this.handshakePort.postMessage(hello);
   }
@@ -60,7 +63,7 @@ export class FakeBot {
   /** Posts a `call` envelope on the steady-state port. Requires a completed handshake. */
   call(id: string, method: string, params: unknown): void {
     if (!this.steady) throw new Error("FakeBot.call: handshake not complete yet");
-    const envelope: Envelope = { id, kind: "call", platform: "telegram", payload: { method, params } };
+    const envelope: Envelope = { id, kind: "call", platform: this.platform, payload: { method, params } };
     this.steady.postMessage(envelope);
   }
 

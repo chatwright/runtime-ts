@@ -1,8 +1,9 @@
 # `runtime-ts` architecture — first slice
 
 **Status:** iframe transport + Telegram codec (text, inline buttons, edits) +
-the deterministic expect layer (`src/expect/`). Everything below describes
-what is actually implemented in `src/` today, not an aspiration — see
+WhatsApp codec (text only — no buttons, no edits) + the deterministic expect
+layer (`src/expect/`). Everything below describes what is actually
+implemented in `src/` today, not an aspiration — see
 [README.md](../README.md#fidelity) for the fidelity list and
 [`docs/runtime-parity.md`](https://github.com/chatwright/chatwright/blob/main/docs/runtime-parity.md)
 (decision 0015) for how this slice compares to `runtime-go`.
@@ -16,19 +17,35 @@ One `Session` instance:
   `transport` is anything implementing [`BotTransport`](../src/transport/transport.ts)
   — in practice, an [`IframeHost`](../src/protocol/iframe-host.ts).
 - Turns `submitText(chatId, user, text)` / `submitClick(chatId, user,
-  actionId, targetMessageId)` calls into Telegram updates, delivered to the
-  bot via the transport.
-- Answers the bot's calls by handing them to
-  [`TelegramCodec`](../src/telegram/codec.ts) and relaying the result back
-  through the transport.
+  actionId, targetMessageId)` calls into platform-native updates, delivered
+  to the bot via the transport.
+- Answers the bot's calls by handing them to its configured [`PlatformCodec`](../src/platform/codec.ts)
+  and relaying the result back through the transport.
 - Owns one [`InMemoryJournal`](../src/journal/in-memory-journal.ts) per chat
   id, lazily created the first time that chat is addressed.
 - Assembles everything recorded so far into a run-bundle v1 document via
   `toBundle()`: one run, an actor roster (a human actor and a bot actor,
-  each with a `telegram` platform identity once one has been observed), one
-  chat entry per addressed chat, and **one deterministic part whose journal
-  boundary spans the entire recording** — this slice does not yet split a
-  run into multiple parts or attach an AI-goal part.
+  each with a platform identity — keyed by the codec's `platform` — once one
+  has been observed), one chat entry per addressed chat, and **one
+  deterministic part whose journal boundary spans the entire recording** —
+  this slice does not yet split a run into multiple parts or attach an
+  AI-goal part.
+
+**Codec-agnostic by construction, not by coincidence.** `Session` is
+generic over `SessionOptions.codec: PlatformCodec` (default: a
+[`TelegramCodec`](../src/telegram/codec.ts) built with the session's own
+`clock`) — it never imports a platform name as a string literal, never
+branches on which codec it holds, and gets `platform`, every
+`platformIdentities` key, and the bot actor's wire identity entirely from
+`codec.platform`/`codec.botIdentity`. This is what let
+[`WhatsAppCodec`](../src/whatsapp/codec.ts) — the runtime's second codec —
+plug in as `new Session({ codec: new WhatsAppCodec(clock) })` with **no
+change to `Session`'s control flow**, only additive typing (`PlatformUser`
+replacing the Telegram-specific `TelegramUser` on `submitText`/
+`submitClick`'s parameters, and an honest thrown error from `submitClick`
+when the configured codec omits `buildCallbackUpdate` — see "The platform
+codec seam" below). See the [`PlatformCodec`](../src/platform/codec.ts)
+seam's doc comment for the full interface this generality rests on.
 
 This is a deliberately small slice of what research item I-66 ("browser
 runtime internals") will eventually design: a multi-bot registry, scenario
@@ -127,6 +144,80 @@ The codec does not own journal storage itself: callers (in practice,
 `Session`) resolve the right chat's `Journal` and pass it in, mirroring how
 a real Bot API call's `chat_id` is what `Emulator` uses to route into its
 own store.
+
+### 2b. Platform codec seam, second implementation — `WhatsAppCodec`
+
+[`src/whatsapp/codec.ts`](../src/whatsapp/codec.ts) is the runtime's second
+[`PlatformCodec`](../src/platform/codec.ts), builds and parses WhatsApp
+Cloud (Graph) API payloads, porting `runtime-go`'s
+[`whatsapp.Emulator`](https://github.com/chatwright/runtime-go/blob/main/whatsapp/emulator.go)
+as an algorithm — same rule as `TelegramCodec`, and proof that the
+`PlatformCodec` seam `TelegramCodec` first proved out generalises to a
+second platform without touching `Session`'s control flow (see "Session
+model" above):
+
+- `buildTextUpdate` builds a `messages` webhook update for a user's
+  submitted text and journals the inbound entry, mirroring
+  `Emulator.SubmitText` — including its identity scheme: message ids come
+  from a **per-chat** sequence shared by inbound and outbound messages
+  (like Telegram's), but WhatsApp has no separate "update id" concept at
+  all (a webhook body carries no top-level sequence number), so unlike
+  `TelegramCodec` there is no second, codec-wide sequence here. `chatId`
+  doubles as the sender's `wa_id` on the wire — WhatsApp has no
+  chat-identity/user-identity split the way Telegram incidentally has one
+  — so `user.id` is never read, only `user.firstName` (the contact profile
+  name), exactly mirroring `Emulator.SubmitText`.
+- `handleCall` parses and answers exactly one call shape: `method ===
+  "sendMessage"` with `params.type === "text"` — mirroring the `wabotapi`
+  Go client's own `Client.SendMessage`/`SendTextConfig` JSON body. It
+  journals a bot message entry (`version` always `0` — the Cloud API has no
+  edit endpoint, so unlike Telegram's journal there is no version concept
+  here at all) and returns the Cloud API's success envelope, down to the
+  literal `"wamid.reply"` id `Emulator.handle` itself always returns.
+- Every other call — a `type` other than `"text"`, or a `method` other than
+  `"sendMessage"` — returns the Cloud API's own `{"error": {"message",
+  "type", "code", "error_subcode", "fbtrace_id"}}` shape (`type:
+  "ChatwrightNotEmulated"`, `code: 501` — chatwright's own honesty marker,
+  borrowing the same not-a-real-platform-code convention `TelegramCodec`'s
+  `501` already established, never a value the real Cloud API would send)
+  and journals an `"uncaptured"` entry.
+
+**No interactive actions — `buildCallbackUpdate` is omitted entirely, not
+stubbed.** `runtime-go`'s `Emulator` does implement `SubmitClick` (an
+inbound interactive-reply click), but this slice's declared `capabilities`
+— `["messaging.text"]` — carries no interactive-action support, so this
+codec simply does not define `buildCallbackUpdate` (the `PlatformCodec`
+seam makes it optional for exactly this reason — see its own doc comment).
+`Session.submitClick` checks for its presence and throws a clear,
+platform-named error for any codec that omits it, rather than the call
+silently doing nothing. This is a deliberate parity gap versus
+`runtime-go`, recorded in the fidelity list in
+[README.md](../README.md#fidelity) and the cross-repo parity register —
+never silently absorbed.
+
+**One recorded strengthening versus `runtime-go`, not a narrowing.**
+`Emulator.handle` (the Go emulator's HTTP handler) blindly decodes *any*
+POST to a `/messages`-suffixed path as `wabotapi.SendTextConfig` and always
+succeeds — its own doc comment names this directly as a known MVP-scope
+gap ("this text-first MVP-scope emulator does not yet capture outbound
+interactive actions … `JournalEntryUncaptured` never occurs"). This codec
+instead inspects the call's `type` field — the same discriminator the real
+Cloud API itself switches on — and honestly reports anything other than
+`"text"` as unsupported (error envelope plus an `"uncaptured"` entry)
+rather than silently losing the call's content. See `src/whatsapp/codec.ts`'s
+module doc comment for the full reasoning; this is the one place this
+codec is *stricter* than `runtime-go`, not narrower, and is recorded the
+same way any other deviation is (decision 0008).
+
+**Journalled `fromId` is always `0`.** `runtime-go`'s own `toPlatformEntry`
+never sets `platform.JournalEntry.FromID` for a WhatsApp entry, inbound or
+outbound — mirrored here faithfully (bug-for-bug, not "fixed"
+unilaterally) rather than diverging from Go's actual semantics, per
+principle 7's identical-semantics rule. Worth a `runtime-go` follow-up, out
+of scope for this slice.
+
+The codec does not own journal storage itself, for the same reason
+`TelegramCodec` doesn't — see above.
 
 ### 3. Journal seam — `InMemoryJournal`
 
@@ -360,3 +451,22 @@ DOM-free, in plain Node:
   deterministic expect layer over the same `Session` + `IframeHost` +
   `FakeBot` DOM-free setup — see "Testing" under "The expect layer" above
   for exactly what it proves.
+- [`src/whatsapp/codec.test.ts`](../src/whatsapp/codec.test.ts) is
+  `WhatsAppCodec`'s pure-unit twin of `src/telegram/codec.test.ts`: the
+  `buildTextUpdate` webhook shape and per-chat message-id sequence, a
+  successful `sendMessage`/`type:"text"` round trip, the honest error +
+  `"uncaptured"` journal entry for a non-text `type` and for an unrecognised
+  `method`, and that `buildCallbackUpdate` is genuinely absent from the
+  codec (not merely unused).
+- [`src/session/session.whatsapp.test.ts`](../src/session/session.whatsapp.test.ts)
+  is the WhatsApp twin of `session.test.ts`'s scripted exchange, kept in its
+  own file rather than merged into `session.test.ts` so each platform's
+  scenario stays independently readable: the iframe handshake completing
+  with `platform: "whatsapp"`, a plain-text round trip end to end, the
+  honest error path for an unsupported call, `submitClick` throwing because
+  this codec omits `buildCallbackUpdate`, and a full numbered-replies
+  conversation ("Choose your language: 1) English 2) Español 3) Français" →
+  user replies `"1"` → bot greets — plain text throughout, no buttons)
+  whose `toBundle()` output validates against the same vendored run-bundle
+  v1 schema with `platform: "whatsapp"` and a `whatsapp`-keyed
+  `platformIdentities` entry.
