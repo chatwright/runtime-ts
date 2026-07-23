@@ -1,0 +1,22 @@
+{
+  "name": "@chatwright/runtime",
+  "version": "0.0.1",
+  "private": false,
+  "type": "module",
+  "license": "Apache-2.0",
+  "description": "Chatwright browser runtime — orchestrates scenarios against black-box bots inside the Studio Playground",
+  "homepage": "https://chatwright.dev",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/chatwright/runtime-ts.git"
+  },
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "typescript": "^6.0.3"
+  }
+}
