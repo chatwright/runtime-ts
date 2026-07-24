@@ -13,7 +13,7 @@ import type { Usage } from "../provider.js";
  * response_format rejection).
  */
 export class AuthenticationError extends Error {
-  constructor(readonly cause: Error) {
+  constructor(override readonly cause: Error) {
     super(`actor/openai: authentication failed: ${cause.message}`);
     this.name = "AuthenticationError";
   }
@@ -25,7 +25,7 @@ export class AuthenticationError extends Error {
  * fallback either: a rate limit is not a response_format rejection.
  */
 export class RateLimitError extends Error {
-  constructor(readonly cause: Error) {
+  constructor(override readonly cause: Error) {
     super(`actor/openai: rate limited: ${cause.message}`);
     this.name = "RateLimitError";
   }
@@ -47,7 +47,7 @@ export class InvalidResponseError extends Error {
   readonly finishReason: string;
   /** Which response field `raw` was read from — `"content"`, `"reasoning_content"` or `"reasoning"` — or empty. */
   readonly source: string;
-  readonly cause: Error;
+  override readonly cause: Error;
   /**
    * The {@link "../provider.js".Usage} the (successful) HTTP call reported, if
    * any — preserved here because, unlike the Go runtime's `(Proposal, Usage,

@@ -1,6 +1,7 @@
 {
   "compilerOptions": {
     "strict": true,
+    "noImplicitOverride": true,
     "target": "ES2022",
     "module": "ES2022",
     "moduleResolution": "bundler",
