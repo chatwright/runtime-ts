@@ -5,7 +5,7 @@ import Ajv2020, { type ValidateFunction } from "ajv/dist/2020.js";
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
 
 import { IframeHost } from "../protocol/iframe-host.js";
-import { FakeBot, flushMacrotasks } from "../testkit/fake-bot.js";
+import { FakeBot, flushMacrotasks, flushUntil } from "../testkit/fake-bot.js";
 import { WhatsAppCodec, type WhatsAppUser } from "../whatsapp/codec.js";
 import { Session } from "./session.js";
 
@@ -66,7 +66,7 @@ describe("Session driving WhatsAppCodec", () => {
     expect(host.connected).toBe(false);
 
     bot.sendHello("whatsapp", ["messaging.text"]);
-    await flushMacrotasks();
+    await flushUntil(() => host.connected && bot.connected);
 
     expect(host.connected).toBe(true);
     expect(bot.connected).toBe(true);
@@ -238,7 +238,11 @@ describe("Session driving WhatsAppCodec", () => {
       type: "text",
       text: { body: "Howdy stranger" },
     });
-    await flushMacrotasks();
+    await flushUntil(
+      () =>
+        ((session.toBundle() as { runs: { chats: { entries: unknown[] }[] }[] }).runs[0]?.chats[0]
+          ?.entries?.length ?? 0) >= 3,
+    );
 
     const bundle = session.toBundle() as {
       format: string;

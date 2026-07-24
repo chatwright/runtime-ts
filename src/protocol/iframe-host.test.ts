@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 
 import { IframeHost } from "./iframe-host.js";
-import { FakeBot, flushMacrotasks } from "../testkit/fake-bot.js";
+import { FakeBot, flushMacrotasks, flushUntil } from "../testkit/fake-bot.js";
 import type { BotCall } from "../transport/transport.js";
 
 const EXPECTED_ORIGIN = "https://bot.example";
@@ -34,7 +34,7 @@ describe("IframeHost handshake", () => {
     expect(bot.connected).toBe(false);
 
     bot.sendHello();
-    await flushMacrotasks();
+    await flushUntil(() => host.connected && bot.connected);
 
     expect(host.connected).toBe(true);
     expect(bot.connected).toBe(true);
@@ -108,7 +108,7 @@ describe("IframeHost update queueing", () => {
     expect(bot.updates()).toHaveLength(0); // nothing flows before handshake
 
     bot.sendHello();
-    await flushMacrotasks();
+    await flushUntil(() => bot.updates().length >= 3);
 
     const updates = bot.updates();
     expect(updates).toHaveLength(3);
@@ -123,10 +123,10 @@ describe("IframeHost update queueing", () => {
     });
 
     bot.sendHello();
-    await flushMacrotasks();
+    await flushUntil(() => bot.connected);
 
     host.deliverUpdate({ n: 1 });
-    await flushMacrotasks();
+    await flushUntil(() => bot.updates().length >= 1);
     expect(bot.updates()).toHaveLength(1);
   });
 });

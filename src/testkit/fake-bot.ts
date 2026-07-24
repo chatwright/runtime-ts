@@ -20,6 +20,20 @@ export function flushMacrotasks(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, 0));
 }
 
+/**
+ * Flush macrotasks repeatedly until `predicate` holds, or `maxHops` is
+ * exhausted. A single `flushMacrotasks` advances only one macrotask hop, but
+ * a multi-step `MessagePort` exchange (e.g. hello → ack + queued-update flush
+ * on a transferred port → the bot observing those updates) settles over
+ * several hops; asserting after a single hop is a race. Awaiting the condition
+ * itself removes the flake without hard-coding a hop count.
+ */
+export async function flushUntil(predicate: () => boolean, maxHops = 50): Promise<void> {
+  for (let hop = 0; hop < maxHops && !predicate(); hop++) {
+    await flushMacrotasks();
+  }
+}
+
 /** A fake bot driving one `MessagePort` handshake channel from the bot's side. */
 export class FakeBot {
   private steady: MessagePort | undefined;

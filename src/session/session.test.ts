@@ -5,7 +5,7 @@ import Ajv2020, { type ValidateFunction } from "ajv/dist/2020.js";
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
 
 import { IframeHost } from "../protocol/iframe-host.js";
-import { FakeBot, flushMacrotasks } from "../testkit/fake-bot.js";
+import { FakeBot, flushMacrotasks, flushUntil } from "../testkit/fake-bot.js";
 import type { TelegramUser } from "../telegram/codec.js";
 import { Session } from "./session.js";
 
@@ -71,7 +71,7 @@ describe("Session: a scripted greetbot-like exchange", () => {
 
     session.registerBot(host);
     bot.sendHello();
-    await flushMacrotasks();
+    await flushUntil(() => host.connected);
     expect(host.connected).toBe(true);
 
     const chatId = 42;
@@ -92,7 +92,7 @@ describe("Session: a scripted greetbot-like exchange", () => {
         ],
       },
     });
-    await flushMacrotasks();
+    await flushUntil(() => bot.results().some((envelope) => envelope.id === "c1"));
     const sendMessageResult = bot.results().find((envelope) => envelope.id === "c1");
     expect(sendMessageResult).toBeDefined();
     const greetingMessageId = (sendMessageResult?.payload as { result: { message_id: number } }).result.message_id;
@@ -110,7 +110,7 @@ describe("Session: a scripted greetbot-like exchange", () => {
       message_id: greetingMessageId,
       text: "Howdy stranger",
     });
-    await flushMacrotasks();
+    await flushUntil(() => bot.results().some((envelope) => envelope.id === "c3"));
     const editResult = bot.results().find((envelope) => envelope.id === "c3");
     expect(editResult).toMatchObject({ payload: { ok: true, result: { text: "Howdy stranger" } } });
 
@@ -119,7 +119,11 @@ describe("Session: a scripted greetbot-like exchange", () => {
     await flushMacrotasks();
 
     bot.call("c4", "sendMessage", { chat_id: chatId, text: "Howdy stranger" });
-    await flushMacrotasks();
+    await flushUntil(
+      () =>
+        ((session.toBundle() as { runs: { chats: { entries: unknown[] }[] }[] }).runs[0]?.chats[0]
+          ?.entries?.length ?? 0) >= 6,
+    );
 
     // --- Assemble and validate ----------------------------------------------
     const bundle = session.toBundle() as {
