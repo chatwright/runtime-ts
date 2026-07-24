@@ -69,10 +69,19 @@ export interface LoopEvent {
   readonly taskId: string;
   /** The {@link "../observe/observe.js".Observation.sequence} this iteration observed before proposing. */
   readonly observationSequence: number;
-  readonly proposal: Proposal;
-  readonly usage: Usage;
-  readonly validation: ValidationOutcome;
-  readonly action: ActionOutcome;
+  /**
+   * The proposal this iteration produced. Absent only on a propose-error
+   * event (see {@link LoopEvent.proposeError}), where the provider threw
+   * before any proposal existed; the bundle wire emits a zero proposal in
+   * that case.
+   */
+  readonly proposal?: Proposal;
+  /** Absent only on a propose-error event; the bundle wire emits a zero usage. */
+  readonly usage?: Usage;
+  /** Absent only on a propose-error event; the bundle wire emits a zero validation. */
+  readonly validation?: ValidationOutcome;
+  /** Absent only on a propose-error event; the bundle wire emits a zero action. */
+  readonly action?: ActionOutcome;
   /** Set exactly when this iteration's call to a provider threw: the error's message. Absent otherwise. */
   readonly proposeError?: string;
 }

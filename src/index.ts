@@ -32,3 +32,9 @@ export * from "./observe/index.js";
 export * from "./goal/index.js";
 export * from "./actor/index.js";
 export * from "./actor/openai/index.js";
+
+// The actor loop, deterministic evaluator, scenario/run orchestration and
+// bundle emission (Part 2).
+export * from "./deterministic/index.js";
+export * from "./run/index.js";
+export * from "./scenario/index.js";

@@ -8,3 +8,4 @@
 export * from "./provider.js";
 export * from "./loop-event.js";
 export * from "./scripted-provider.js";
+export * from "./loop.js";

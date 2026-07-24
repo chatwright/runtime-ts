@@ -126,12 +126,17 @@ function renderHistory(history: readonly LoopEvent[]): string {
 
   let b = `## Recent history (last ${history.length} attempts, oldest first)\n`;
   history.forEach((ev, i) => {
+    if (ev.proposal === undefined) {
+      // A propose-error event carries no proposal — record the error instead.
+      b += `${i + 1}. propose failed: ${ev.proposeError ?? "unknown error"}\n`;
+      return;
+    }
     b += `${i + 1}. proposed ${describeProposal(ev.proposal)}`;
-    if (ev.validation.checked) {
+    if (ev.validation?.checked) {
       b += `; validation=${ev.validation.verdict ?? ""} (${ev.validation.reason ?? ""})`;
     }
-    b += `; outcome=${ev.action.kind}`;
-    if (ev.action.detail) b += ` (${ev.action.detail})`;
+    b += `; outcome=${ev.action?.kind ?? ""}`;
+    if (ev.action?.detail) b += ` (${ev.action.detail})`;
     b += "\n";
   });
   return b;

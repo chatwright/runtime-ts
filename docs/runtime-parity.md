@@ -86,3 +86,87 @@ run-bundle emission are out of scope for this foundation. The interfaces they
 will consume are exported cleanly: `Provider`/`Prompt`/`Proposal`/`Usage`,
 `LoopEvent`/`ValidationOutcome`/`ActionOutcome`, `ObserveEngine`,
 `CampaignState`, and `observedBotEffect`/`semanticallyEqualMessage`.
+
+---
+
+## Part 2 — actor loop, deterministic evaluator, scenario/run, bundle
+
+The follow-up slice (`src/actor/loop.ts`, `src/deterministic/`, `src/run/`,
+`src/scenario/`) is ported from Go's `actor/loop.go`, `campaign/report.go` +
+`assemble.go`, `run/*.go`, `arena/scenario.go` and `cw/expect.go`. Additional
+deliberate deviations, on top of the foundation ones above:
+
+1. **`Actuator` seam over `Session`, synchronous delivery.** Go's `Actuator` is
+   a subset of `platform.Emulator`; the TS `Actuator` is implemented by
+   `SessionActuator` over this repo's `Session`. Its `submitText`/`submitClick`
+   are synchronous and assume the bot-under-test reacts before control returns
+   (mirroring Go's synchronous webhook delivery), so the journal is settled by
+   the time the loop re-observes. `waitForMessage`/`waitForEdit` still go
+   through the shared subscribe-driven `waitForCondition` — **never a poll** —
+   returning `undefined` on timeout (the twin of Go's `(*Message, false)`).
+
+2. **Campaign-stopped guard.** Go ignores `errors.Is(err, ErrCampaignStopped)`
+   after `recordStep`/`recordCost`/`recordFailure`/`abort`; the TS loop wraps
+   those in a helper that swallows exactly a `GoalError` with
+   `code === "campaign-stopped"` and rethrows anything else.
+
+3. **`LoopEvent` fields relaxed to optional.** A propose-error event carries no
+   `proposal`/`usage`/`validation`/`action` (Go's zero values); the bundle wire
+   emits the schema's required zero-value objects (`kind: ""`, etc.) for them.
+
+4. **Deterministic testing is a NEW data-driven, serialisable model.** Go's
+   deterministic side is a fluent code DSL (`cw/expect.go`); `src/deterministic`
+   preserves its **semantics** (`text-equals`/`text-contains`/`text-matches`/
+   `expects-action`/`edited`/`within`) as plain serialisable assertion objects,
+   targeting a bot message by 1-based `botTurn` ordinal. Each yields
+   `pass | fail | unverified` with a diagnostic. Side-effect (`data-state`/DTQL)
+   assertions evaluate to `unverified` with a browser-limitation reason unless a
+   pluggable `SideEffectVerifier` (the companion-server seam) resolves them.
+
+5. **`Run` is scoped to steps + evaluator, not the full Go composition
+   subsystem.** A deterministic `Part` performs `steps` then runs the evaluator;
+   it does **not** port Go's `cw.Fragment`/`InvokeFragment`/`ExecutionContext`
+   provenance machinery, nor `FailurePolicy`, `RunCeiling`, or the
+   `coverage-gap`/`ceiling-stopped`/`aborted` part statuses (out of this
+   slice's scope). The `RunEnvironment` is a `Session` (this runtime's emulator
+   equivalent); journal boundaries are computed by snapshotting session journals
+   before/after each part. A Studio UI subscribes to live updates via
+   `ExecuteOptions.onProgress` (part boundaries + forwarded loop
+   `ProgressSnapshot`s) and `onAssertion` (per-assertion outcomes).
+
+6. **Bundle wire conversions.** `buildRunBundle` reuses `Session.toBundle()` for
+   the base and replaces its single part with the run's parts, filling the
+   reserved `aiGoal` section. Durations become nanoseconds
+   (`maxDurationNanoseconds`, `elapsedNanoseconds`, `latencyNanoseconds`);
+   `LoopEvent.at` (ms) becomes an ISO date-time string; empty action grids are
+   emitted as `null` to match Go's nil. Provider/model provenance is attached to
+   the matching roster actor. The emitted bundle is validated against
+   `run-bundle/v1/schema.json` with `ajv` in the greetbot e2e test.
+
+7. **greetbot provider is an observation-driven policy provider, not a fixed
+   `ScriptedProvider`.** The click step targets an opaque
+   `AvailableAction.id` only known once the picker is observed, so — exactly as
+   Go's own `ScriptedProvider` doc advises for opaque ids — the greetbot
+   scenario uses a thin observation-reading policy provider. `ScriptedProvider`
+   itself is used directly in the loop unit tests (happy path, non-progress
+   abort, stale-click rejection, premature-done rejection), all zero-network.
+
+8. **greetbot bot-under-test is a synchronous in-process `BotTransport`.**
+   `src/testkit/greetbot-bot.ts` is a reactive fake (the same seam
+   `Session.registerBot` consumes), distinct from the iframe `FakeBot` in
+   `fake-bot.ts` (which drives the postMessage handshake). Zero network. Its
+   behaviour is a faithful port of Go's `examples/greetbot`.
+
+9. **Scenario documents are invocation-manifest-first.** `parseScenarioManifest`
+   validates structure only — no bot start, DB access or secret expansion — and
+   rejects an unsupported schema version or capability **explicitly**, retaining
+   the original document (feature AC `unsupported-schema-is-safe`).
+
+### Greetbot verdict parity
+
+The greetbot e2e drives the loop to `goal-complete` with the single task
+`completed`, the journal re-check `verified: true` ("started, clicked English,
+acknowledged — all journal-verified"), and all four data-driven assertions
+`pass` — the same verdict Go's `arena` greetbot scenario produces (task
+complete + `verifyGreetbotJournal` verified), proven here entirely in-process
+against a fake bot with zero network.
