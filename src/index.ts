@@ -26,3 +26,9 @@ export * from "./session/session.js";
 export * from "./runtime/runtime.js";
 export * from "./expect/chat.js";
 export * from "./expect/bot-message.js";
+
+// The AI actor-model engine foundation, ported from the Go runtime.
+export * from "./observe/index.js";
+export * from "./goal/index.js";
+export * from "./actor/index.js";
+export * from "./actor/openai/index.js";

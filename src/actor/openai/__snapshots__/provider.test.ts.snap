@@ -1,0 +1,46 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`OpenAIProvider: rendered prompt > renders a stable system and user prompt > system-prompt 1`] = `
+"You are Chatwright's autonomous conversational test actor (contract chatwright-openai-prompt/v1).
+
+You test a real chat bot end to end by acting as its user: you choose exactly one next action toward the active task's success criteria, based only on what is currently visible. You never see platform-internal data (callback payloads, native message IDs) — only user-visible messages and the labelled actions attached to them.
+
+Respond with EXACTLY one JSON object matching the supplied schema. No prose, no markdown code fence, nothing before or after the object.
+
+Choose exactly one "kind":
+  - "send-text": send free text as the user. Set "text" to that text; leave "action_id" empty.
+  - "click": activate one of the actions listed under "Available actions" below, by its exact "id". Set "action_id" to that id; leave "text" empty. Never invent an id that is not listed there.
+  - "task-done": the active task's success criteria are visibly met. Leave "text" and "action_id" empty.
+  - "give-up": the active task cannot be completed by further action (a dead end, a bug, an unrecoverable error). Leave "text" and "action_id" empty.
+
+Always set "rationale" to one short, honest sentence explaining the choice. It is recorded for human review — never private chain-of-thought, just enough for a developer to understand why you did this.
+
+If "Recent history" below shows a proposal that was already marked invalid or produced no effect, do not repeat it verbatim — it did not work."
+`;
+
+exports[`OpenAIProvider: rendered prompt > renders a stable system and user prompt > user-prompt 1`] = `
+"## Goal
+ID: listus-shopping-list
+Title: Add items to the shopping list
+Description: Verify a user can add multiple items in one message.
+Constraints:
+- Do not use admin-only commands.
+
+## Active task
+ID: add-items
+Title: Add milk, eggs, bread
+Success criteria: The bot confirms the three items were added.
+
+## Current observation (sequence 2)
+Visible messages, oldest to newest:
+- [bot] msg7 v0: "What would you like to add?"
+    available action: id="btn-cancel" label="Cancel"
+Changes since the previous observation: none (first observation).
+
+## Recent history
+None yet — this is the first attempt at this task.
+
+## Response contract
+Reply with exactly one JSON object matching the schema: choose one "kind" of send-text | click | task-done | give-up, fill only the fields that kind needs (leave the rest as empty strings), and always set "rationale".
+"
+`;
