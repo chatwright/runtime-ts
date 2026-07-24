@@ -119,9 +119,10 @@ as an algorithm (never as shared code, per decision 0012):
 - `handleCall` parses and answers `sendMessage` (including `reply_markup`
   inline keyboards), `editMessageText` (appends a new, versioned journal
   entry rather than mutating the original — the append-only rule — and
-  keeps the existing keyboard when `reply_markup` is omitted, like real
-  Telegram), `answerCallbackQuery` (acknowledged, no journal entry — it
-  produces no observable chat content), and `getMe`.
+  removes the existing keyboard when `reply_markup` is omitted, like real
+  Telegram: a keyboard only survives an edit if the call explicitly
+  re-sends `reply_markup`), `answerCallbackQuery` (acknowledged, no journal
+  entry — it produces no observable chat content), and `getMe`.
 - Every other method returns the Telegram-shaped `501`
   (`{"ok":false,"error_code":501,"description":"method not emulated: X"}`)
   and journals an `"uncaptured"` entry attributed to whatever `chat_id` the

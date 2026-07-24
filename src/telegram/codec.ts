@@ -317,8 +317,11 @@ export class TelegramCodec implements PlatformCodec {
     const prev = latestBotTextEntry(journal, messageId);
     if (!prev) return errorResult(400, "message to edit not found");
 
-    // editMessageText without reply_markup keeps the existing keyboard, like real Telegram.
-    const actions = markup ? actionsFromMarkup(markup) : prev.actions;
+    // editMessageText without reply_markup REMOVES the existing keyboard —
+    // real Telegram only keeps a message's inline keyboard when the edit
+    // call explicitly re-sends reply_markup; omitting it clears the keyboard
+    // (decision 0015, cross-repo parity register docs/runtime-parity.md).
+    const actions = markup ? actionsFromMarkup(markup) : undefined;
     const version = prev.version + 1;
     const at = this.clock();
     journal.append({

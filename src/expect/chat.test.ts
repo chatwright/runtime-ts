@@ -73,8 +73,9 @@ describe("Chat: the founder's canonical case", () => {
     edited.expectText("Confirmed!");
     expect(edited.messageId).toBe(ask.messageId);
     expect(edited.version).toBe(ask.version + 1);
-    // editMessageText carried no reply_markup, so the keyboard is preserved, like real Telegram.
-    edited.expectActions("Yes", "No");
+    // editMessageText carried no reply_markup, so real Telegram removes the
+    // keyboard (decision 0015, docs/runtime-parity.md) rather than keeping it.
+    edited.expectActions();
   });
 });
 

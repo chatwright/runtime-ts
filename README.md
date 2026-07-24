@@ -189,7 +189,7 @@ for how this compares to `runtime-go`.
 |---|---|
 | `getMe` | **Supported.** Always the fixed identity (`id: 1`, `is_bot: true`, `first_name: "ChatwrightBot"`, `username: "chatwright_bot"`). |
 | `sendMessage` | **Supported, validated.** `chat_id` and non-empty `text` are required (else a Telegram-shaped `400`); `reply_markup` inline keyboards are parsed and normalised into journal actions. |
-| `editMessageText` | **Supported, validated.** `chat_id` and `message_id` are required; appends a new, versioned journal entry rather than mutating the original; keeps the existing keyboard when `reply_markup` is omitted; `400` if the target message isn't found. |
+| `editMessageText` | **Supported, validated.** `chat_id` and `message_id` are required; appends a new, versioned journal entry rather than mutating the original; **removes the existing keyboard when `reply_markup` is omitted** (matches real Telegram: a keyboard survives an edit only if the call explicitly re-sends `reply_markup`); `400` if the target message isn't found. |
 | `answerCallbackQuery` | **Acknowledged, no-op.** No journal entry — it produces no observable chat content. |
 | `setWebhook`, `deleteWebhook`, `setMyCommands` | **Unsupported, errors (`501`).** Deliberately narrower than `runtime-go`, which acknowledges these as no-ops: the iframe transport has no webhook concept at all, so this codec does not special-case them. See `docs/architecture.md`. |
 | Everything else (`sendPhoto`, `sendDocument`, `sendPoll`, `deleteMessage`, `pinChatMessage`, …) | **Unsupported, errors (`501`).** Returns `{"ok":false,"error_code":501,"description":"method not emulated: <method>"}` and journals an `"uncaptured"` entry — never silently swallowed. |

@@ -152,8 +152,39 @@ describe("TelegramCodec.handleCall: editMessageText", () => {
     expect(edited?.text).toBe("Howdy stranger");
     expect(edited?.version).toBe(1); // version bumped
     expect(edited?.method).toBe("editMessageText");
-    // reply_markup omitted on the edit: the existing keyboard is kept.
-    expect(edited?.actions).toEqual([[{ label: "English", id: "lang:en", url: "" }]]);
+    // reply_markup omitted on the edit: real Telegram removes the existing
+    // keyboard in this case (it is only kept when the edit re-sends
+    // reply_markup explicitly) — decision 0015, docs/runtime-parity.md.
+    expect(edited?.actions).toBeUndefined();
+  });
+
+  it("uses the edit's own reply_markup when the call explicitly re-sends one", () => {
+    const codec = new TelegramCodec(fixedClock("2026-07-23T10:00:01.000Z"));
+    const journal = new InMemoryJournal();
+
+    codec.handleCall(
+      "sendMessage",
+      {
+        chat_id: 42,
+        text: "Choose your language",
+        reply_markup: { inline_keyboard: [[{ text: "English", callback_data: "lang:en" }]] },
+      },
+      contextFor(journal),
+    );
+
+    codec.handleCall(
+      "editMessageText",
+      {
+        chat_id: 42,
+        message_id: 1,
+        text: "Choose again",
+        reply_markup: { inline_keyboard: [[{ text: "Español", callback_data: "lang:es" }]] },
+      },
+      contextFor(journal),
+    );
+
+    const edited = journal.entries()[1];
+    expect(edited?.actions).toEqual([[{ label: "Español", id: "lang:es", url: "" }]]);
   });
 
   it("reports a Telegram-shaped 400 when the target message does not exist", () => {
