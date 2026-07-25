@@ -9,19 +9,19 @@
  * OpenAI prompt renderer can consume them; it contains no loop logic.
  */
 
-import type { Verdict } from "../observe/observe.js";
+import type { Freshness } from "../observe/observe.js";
 import type { Proposal, Usage } from "./provider.js";
 
 /**
- * The loop's validate-step verdict for one proposal, carrying
+ * The loop's validate-step freshness for one proposal, carrying
  * {@link "../observe/engine.js".ObserveEngine.validate}'s own result when it
  * applies. `checked` is `false` for proposal kinds validation does not apply
- * to (`"send-text"`, `"task-done"`, `"give-up"`), leaving `verdict`/`reason`
+ * to (`"send-text"`, `"task-done"`, `"give-up"`), leaving `freshness`/`reason`
  * meaningless.
  */
 export interface ValidationOutcome {
   readonly checked: boolean;
-  readonly verdict?: Verdict;
+  readonly freshness?: Freshness;
   readonly reason?: string;
 }
 

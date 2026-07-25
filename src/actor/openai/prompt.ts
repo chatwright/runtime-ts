@@ -133,7 +133,7 @@ function renderHistory(history: readonly LoopEvent[]): string {
     }
     b += `${i + 1}. proposed ${describeProposal(ev.proposal)}`;
     if (ev.validation?.checked) {
-      b += `; validation=${ev.validation.verdict ?? ""} (${ev.validation.reason ?? ""})`;
+      b += `; validation=${ev.validation.freshness ?? ""} (${ev.validation.reason ?? ""})`;
     }
     b += `; outcome=${ev.action?.kind ?? ""}`;
     if (ev.action?.detail) b += ` (${ev.action.detail})`;

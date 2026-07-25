@@ -131,19 +131,21 @@ export interface ActionProposal {
 }
 
 /**
- * The deterministic outcome of validating an {@link ActionProposal}. A
- * string-literal union (never an integer enum) so it marshals to
+ * The deterministic outcome of validating an {@link ActionProposal}: a
+ * validity check against the runtime's own state, never a judgement against
+ * a criterion ({@link "../deterministic/assertions.js".AssertionVerdict} is
+ * that). A string-literal union (never an integer enum) so it marshals to
  * human-readable JSON.
  */
-export type Verdict = "fresh" | "stale";
+export type Freshness = "fresh" | "stale";
 
 /**
  * The deterministic result of validating an {@link ActionProposal}.
  */
 export interface ValidationResult {
-  readonly verdict: Verdict;
-  /** Explains the verdict; always set. */
+  readonly freshness: Freshness;
+  /** Explains the freshness; always set. */
   readonly reason: string;
-  /** The action's current form; set only when {@link ValidationResult.verdict} is `"fresh"`. */
+  /** The action's current form; set only when {@link ValidationResult.freshness} is `"fresh"`. */
   readonly current?: AvailableAction;
 }

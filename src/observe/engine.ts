@@ -92,14 +92,14 @@ export class ObserveEngine {
   /**
    * Checks `proposal` against the Engine's CURRENT journal state — never
    * against the (possibly outdated) Observation the actor originally saw —
-   * and returns a deterministic fresh/stale verdict with a reason. It does
+   * and returns a deterministic fresh/stale freshness with a reason. It does
    * not execute anything, and it does not itself issue or count as a new
    * Observation.
    */
   validate(proposal: ActionProposal): ValidationResult {
     if (!this.#issued.has(proposal.observationSequence)) {
       return {
-        verdict: "stale",
+        freshness: "stale",
         reason: `observation ${proposal.observationSequence} is unknown to this engine`,
       };
     }
@@ -111,7 +111,7 @@ export class ObserveEngine {
       for (const action of message.actions) {
         if (action.id === proposal.actionId) {
           return {
-            verdict: "fresh",
+            freshness: "fresh",
             reason: "action is currently available",
             current: action,
           };
@@ -120,7 +120,7 @@ export class ObserveEngine {
     }
 
     return {
-      verdict: "stale",
+      freshness: "stale",
       reason: `action "${proposal.actionId}" is no longer available (its message was edited or its actions changed)`,
     };
   }

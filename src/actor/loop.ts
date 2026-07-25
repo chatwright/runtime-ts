@@ -499,8 +499,8 @@ export class Loop {
           observationSequence: proposal.observationSequence ?? 0,
           actionId: proposal.actionId ?? "",
         });
-        const validation: ValidationOutcome = { checked: true, verdict: result.verdict, reason: result.reason };
-        if (result.verdict !== "fresh") {
+        const validation: ValidationOutcome = { checked: true, freshness: result.freshness, reason: result.reason };
+        if (result.freshness !== "fresh") {
           return { progressed: false, action: { kind: "skipped-invalid", detail: result.reason }, validation };
         }
         const target = this.#resolveClickTarget(result.current!.label);

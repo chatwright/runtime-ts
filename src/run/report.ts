@@ -237,7 +237,7 @@ function navigationFailureEvidence(events: readonly LoopEvent[]): Evidence | und
   const sequences: number[] = [];
   const indexes: number[] = [];
   for (const event of events) {
-    const stale = event.validation?.checked === true && event.validation.verdict === "stale";
+    const stale = event.validation?.checked === true && event.validation.freshness === "stale";
     const invalid = event.action?.kind === "skipped-invalid" || event.action?.kind === "resolution-failed";
     if (stale || invalid) {
       sequences.push(event.observationSequence);

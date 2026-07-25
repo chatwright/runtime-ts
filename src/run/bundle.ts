@@ -175,7 +175,7 @@ function wireUsage(usage: Usage | undefined): Record<string, unknown> {
 function wireValidation(validation: ValidationOutcome | undefined): Record<string, unknown> {
   return {
     checked: validation?.checked ?? false,
-    verdict: validation?.verdict ?? "",
+    freshness: validation?.freshness ?? "",
     reason: validation?.reason ?? "",
   };
 }
