@@ -240,7 +240,7 @@ table's prose.
 | Transcript-in-failure | **Supported.** Every thrown `Error` embeds a chronological chat transcript (`src/expect/transcript.ts`), ported as an algorithm from `runtime-go`'s `Emulator.Transcript`/`renderTranscript`. |
 | `click(actionIdOrLabel)` | **Supported, but targets the chat's most recently resolved message**, not an explicit `(row, col)` coordinate the way Go's `BotMessage.ExpectAction(row, col).Click()` does — matches a Playground chat's UI model directly. Matches by action id (`callback_data`) first, then by visible label. |
 | `ExpectNoMessage` equivalent | **Not implemented** in this slice. |
-| Portable scenario file format | **Not implemented.** Scenarios are still written directly against the `Chat`/`BotMessageExpectation` API in TypeScript — see research item I-71. |
+| Portable scenario file format | **Partially supported.** `src/scenario/document*.ts` parses, validates and independently verifies `scenario-document/v1` documents with full behavioural parity to `runtime-go` (same accept/reject rules, same rule codes, byte-identical `verify` detail strings). Executing a document is supported for `bot.exampleBot: "greetbot"` only (the one cross-runtime conformance fixture); a `url`-addressed bot validates but Build refuses it by name — see `docs/runtime-parity.md`, "Part 3". Scenarios written directly against the `Chat`/`BotMessageExpectation` API remain the general-purpose path — see research item I-71. |
 
 **Transport and scope:**
 

@@ -56,13 +56,18 @@ export function greetbotGoal(): Goal {
       {
         id: GREETBOT_TASK_ID,
         title: "Complete language onboarding",
+        // Byte-identical to arena.GreetbotScenario()'s Go string and to the
+        // self-contained-scenario-documents format's worked example
+        // (testdata/greetbot-language-onboarding.json) — see
+        // document-conformance.test.ts's cross-runtime string-equality
+        // assertion.
         successCriteria:
           'Send "/start" as text to begin the conversation. Wait for the bot\'s language picker message, which ' +
           'carries labelled available actions. Click the action labelled exactly "English" (a click proposal, using ' +
           "its listed action id) — do not send free text for this step, and do not click any other label. After the " +
           "bot's greeting message changes (it is edited in place to an English greeting), send one short text message " +
-          'acknowledging the greeting (for example "Thanks!"). Only once you have sent that acknowledgement should you ' +
-          "declare the task done.",
+          'acknowledging the greeting (for example "Thanks!" or "Great, thanks for the greeting!"). Only once you have ' +
+          "sent that acknowledgement should you declare the task done.",
       },
     ],
     budgets: { maxSteps: 12, maxDurationMs: 4 * 60_000 },

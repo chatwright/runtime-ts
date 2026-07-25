@@ -1,7 +1,8 @@
 /**
- * Test-only support: a reactive, in-process greetbot — the bot-under-test for
- * the greetbot scenario end-to-end proof. A synchronous
- * {@link "../transport/transport.js".BotTransport} (the same seam
+ * A reactive, in-process greetbot — the bot-under-test for the greetbot
+ * scenario end-to-end proof, and (as of `../scenario/examplebots.ts`) the
+ * scenario-document format's shipped `exampleBot: "greetbot"` transport. A
+ * synchronous {@link "../transport/transport.js".BotTransport} (the same seam
  * {@link "../session/session.js".Session.registerBot} consumes), so the whole
  * scenario runs zero-network, with the bot reacting to each delivered update
  * before control returns — mirroring the Go runtime's synchronous webhook
@@ -11,9 +12,13 @@
  * A faithful port of the Go `examples/greetbot` behaviour: `/start` offers a
  * language choice; picking one edits that same message in place, translating
  * it, and is remembered for the rest of the chat; any other text replies with
- * the current greeting. Not part of the public API — not re-exported from
- * `index.ts`. (The iframe {@link "./fake-bot.js".FakeBot} exercises the
- * postMessage handshake; this fake instead reacts to platform updates.)
+ * the current greeting. Originally written as test-only support (hence its
+ * location under `testkit/`) and still primarily used that way; not
+ * re-exported from the package's own `index.ts` — `../scenario/examplebots.ts`
+ * is this class's one non-test public consumer, and is what a caller outside
+ * this repository should import instead of reaching into `testkit/` directly.
+ * (The iframe {@link "./fake-bot.js".FakeBot} exercises the postMessage
+ * handshake; this fake instead reacts to platform updates.)
  */
 
 import type { BotCall, BotTransport } from "../transport/transport.js";
