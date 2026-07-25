@@ -39,7 +39,7 @@ describe("assembleReport", () => {
       event({
         index: 0,
         taskId: "t",
-        validation: { checked: true, verdict: "stale", reason: "gone" },
+        validation: { checked: true, freshness: "stale", reason: "gone" },
         action: { kind: "skipped-invalid", detail: "stale" },
       }),
     ];

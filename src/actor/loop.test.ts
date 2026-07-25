@@ -123,7 +123,7 @@ describe("Loop: stale-click rejection", () => {
     expect(result.nonProgress).toBe(true);
     const events = loop.events();
     expect(events[0]!.validation?.checked).toBe(true);
-    expect(events[0]!.validation?.verdict).toBe("stale");
+    expect(events[0]!.validation?.freshness).toBe("stale");
     expect(events[0]!.action?.kind).toBe("skipped-invalid");
     // Nothing was ever submitted to the bot: the chat's journal is empty.
     expect(session.journal(CHAT_ID).entries()).toHaveLength(0);

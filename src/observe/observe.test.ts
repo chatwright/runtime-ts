@@ -168,19 +168,19 @@ describe("ObserveEngine.validate: fresh vs stale", () => {
     const targetActionId = obs1.messages[0]!.actions[0]!.id;
 
     const fresh = engine.validate({ observationSequence: obs1.sequence, actionId: targetActionId });
-    expect(fresh.verdict).toBe("fresh");
+    expect(fresh.freshness).toBe("fresh");
     expect(fresh.current?.label).toBe("Yes");
 
     // The bot replaces its available actions by editing the message.
     fj.entries.push(messageEntry({ direction: "bot", messageId: 5, text: "Never mind", version: 1 }));
 
     const stale = engine.validate({ observationSequence: obs1.sequence, actionId: targetActionId });
-    expect(stale.verdict).toBe("stale");
+    expect(stale.freshness).toBe("stale");
     expect(stale.reason).not.toBe("");
     expect(stale.current).toBeUndefined();
 
     const unknown = engine.validate({ observationSequence: 999, actionId: targetActionId });
-    expect(unknown.verdict).toBe("stale");
+    expect(unknown.freshness).toBe("stale");
   });
 });
 
