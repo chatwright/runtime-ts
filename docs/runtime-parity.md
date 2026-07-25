@@ -170,3 +170,116 @@ acknowledged — all journal-verified"), and all four data-driven assertions
 `pass` — the same verdict Go's `arena` greetbot scenario produces (task
 complete + `verifyGreetbotJournal` verified), proven here entirely in-process
 against a fake bot with zero network.
+
+---
+
+## Part 3 — self-contained scenario documents (`scenario-document/v1`)
+
+Ported from `runtime-go`'s `scenario/` package (`chatwright.dev/runtime`
+v0.4.0): `document.ts` (shape), `issues.ts` (`Issue`/`Report`, from
+`scenario/report.go`), `document-parse.ts` (from `scenario/parse.go`),
+`document-shape.ts` (forbidden/unknown-member scans), `document-secrets.ts`
+(from `scenario/secrets.go`), `document-fidelity.ts` (from
+`scenario/fidelity.go`), `document-validate.ts` (from `scenario/validate.go`),
+`document-verify.ts` (from `scenario/verify.go`), `document-build.ts` (in
+*spirit* from `scenario/build.go`, deliberately narrower in *scope* — see
+below), and `examplebots.ts` (from `scenario/examplebots.go`). Conformance
+evidence: `document-parse.test.ts` (36 cases ported from `validate_test.go` +
+`parse_security_test.go`), `document-verify.test.ts` (byte-parity cases
+ported from `verify_test.go`), `document-conformance.test.ts` (parses,
+builds and executes `testdata/greetbot-language-onboarding.json` — a
+byte-identical copy of `runtime-go`'s own fixture, diffed at copy time).
+
+### Deviations (each intentional, declared)
+
+1. **Bot transport support is the exact mirror image of `runtime-go`'s.**
+   `runtime-go` accepts `transport: "http"` and refuses `"iframe"` by name
+   (no iframe host). `runtime-ts` accepts `"iframe"` (✅ Works — `IframeHost`)
+   and refuses `"http"` by name (⛔ Blocked — no inbound HTTP server surface
+   in a browser page; see the register above). Both refusals use the same
+   issue code, `unsupported-transport`, and name the transport explicitly —
+   the format's `unsupported-transport-is-refused-by-name` acceptance
+   criterion is satisfied by each runtime refusing the OTHER runtime's
+   supported transport, never by approximating either one.
+
+2. **No unknown-field decoder, so `document-shape.ts` hand-writes one.** Go's
+   `encoding/json` `DisallowUnknownFields` rejects an unrecognised member for
+   free (stopping at the first one found); TypeScript has no stdlib
+   equivalent, so `checkUnknownMembers` is a hand-written, shape-aware walk
+   mirroring `Document`'s own member set at every nesting level, and reports
+   EVERY unknown member found rather than only the first. Both behaviours
+   reject the same documents — the only difference is how many issues a
+   multi-violation document reports, which no acceptance criterion pins.
+
+3. **Cassette playback is not implemented — model-free parity, declared, not
+   half-built.** `runtime-ts` has no cassette engine at all (Go's key is
+   `sha256(providerConfig + "\x00" + json.Marshal(prompt))` — Go struct field
+   order — which this runtime cannot reproduce without inventing its own
+   canonical-JSON keying contract; see AGENTS.md principle 4 and the
+   feature's own "Open Questions"). `document-build.ts` satisfies a
+   `cassette`+`replay` provider on the `exampleBot: "greetbot"` fixture ONLY,
+   by substituting the repository's own hand-authored, deterministic
+   `GreetbotProvider` policy (`greetbot.ts`) — it drives the same happy path
+   a recorded cassette would replay, at zero network/token cost, but it is a
+   fixture-specific substitution, not a general engine. The substitution is
+   always recorded in `BuiltScenario.providerOverrides` (the format's own
+   "a runner overriding a declared provider MUST record the override" rule).
+   A `cassette` provider on any other bot, and every `model`-kind provider,
+   is refused by name (`ScenarioBuildError`) rather than silently attempted.
+   **Parity therefore rests on the resolved run description plus the
+   verdict, not on a shared cassette file** — the "Open Questions" section's
+   own stated fallback.
+
+4. **`url`-addressed bots (`http`/`iframe`) validate but do not Build.**
+   `document-validate.ts` accepts a well-formed `iframe` document (see
+   deviation 1); `document-build.ts` does not yet wire a live `IframeHost`
+   from a parsed document — that is follow-up work this task did not
+   attempt. Build refuses by name (`ScenarioBuildError`, tested in
+   `document-conformance.test.ts`) rather than silently producing a `Run`
+   that cannot reach the bot. Only `bot.exampleBot === "greetbot"` is wired.
+
+5. **`failurePolicy` and `ceiling` are accepted and validated, never
+   enforced at execution time.** This is a PRE-EXISTING gap, not one this
+   slice introduces: `runtime-ts`'s own `run` package does not implement
+   `FailurePolicy`/`RunCeiling` semantics at all (see "Part 2" item 5,
+   above) — every part in `executeRun` runs to completion regardless of a
+   sibling part's failure or an aggregate ceiling. `document-validate.ts`
+   still enforces the DOCUMENT-level shape rules identically to `runtime-go`
+   (budgets non-negative, `maxCost` positive-if-set, `no-run-ceiling`
+   reported when absent), so a document that *declares* an invalid
+   `ceiling`/`failurePolicy` is still rejected/warned identically in both
+   runtimes — only the RUN-TIME enforcement (the
+   `ceiling-trip-attributes-run-and-part` acceptance criterion) is unmet
+   here. Tracked as parity debt, not silently dropped.
+
+6. **The bot roster's `platformIdentity.firstName` does not carry
+   `bot.name`.** `runtime-go`'s `botRosterActor` copies `Bot.Name` into the
+   emulated identity's `FirstName` (`{UserID: telegram.EmulatedBotUserID,
+   FirstName: b.Name}`). `runtime-ts`'s `Session` assigns the bot's platform
+   identity entirely from its `TelegramCodec` (`{userId: 1, firstName:
+   "ChatwrightBot"}`, a fixed constant — `src/telegram/codec.ts`'s
+   `TELEGRAM_BOT_USER_ID`/`TELEGRAM_BOT_FIRST_NAME`), independent of the
+   `SessionActor.name` a caller passes to `Session`'s constructor. This is a
+   PRE-EXISTING property of `Session`/`TelegramCodec` (present before this
+   slice, and already true of the hand-authored greetbot e2e test), not
+   something `document-build.ts` introduces or attempts to fix here — fixing
+   it would mean letting a session's bot platform identity be
+   caller-overridden, a `Session`-wide design change out of this task's
+   scope. Recorded here rather than silently claimed as parity: the "same
+   bot roster identity" half of `greetbot-scenario-is-expressible` is a
+   Go-only acceptance criterion (compared against `arena.GreetbotScenario()`
+   there); the cross-runtime `same-document-same-verdict-in-both-runtimes`
+   criterion is satisfied at the DOCUMENT's own resolved fields (`bot.id`,
+   `bot.name`, `cast[*].platformIdentity`), which this module reproduces
+   byte-for-byte from the shared fixture in both runtimes — not at the
+   `Session`-internal, `TelegramCodec`-assigned wire identity.
+
+7. **Live model providers (`kind: "model"`) are not wired.** `runtime-ts`
+   already has an OpenAI-compatible provider (`src/actor/openai/`), but
+   wiring `apiKey` secret resolution honestly (a browser page has no
+   `process.env`; `document-secrets.ts`'s `EnvOnlySecretResolver` only
+   suits a Node-hosted caller such as a CLI or this repository's own test
+   suite) is real, untested work this task did not attempt. `resolveSecret`/
+   `SecretResolver`/`EnvOnlySecretResolver` are exported ready for a
+   follow-up slice to wire; `document-build.ts` refuses `kind: "model"` by
+   name in the meantime.
