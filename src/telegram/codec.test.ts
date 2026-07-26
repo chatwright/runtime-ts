@@ -170,6 +170,84 @@ describe("TelegramCodec.handleCall: native rich messages", () => {
     ]);
   });
 
+  it("matches Telegram's nested date-time field conformance", () => {
+    const richMessage = (dateTimeFields: Record<string, unknown>) => ({
+      blocks: [
+        {
+          type: "details",
+          summary: "Deadline",
+          blocks: [
+            {
+              type: "paragraph",
+              text: [
+                {
+                  type: "bold",
+                  text: [
+                    {
+                      type: "date_time",
+                      text: "soon",
+                      ...dateTimeFields,
+                    },
+                  ],
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    });
+
+    const cases = [
+      {
+        name: "r accepted",
+        fields: { unix_time: 1_800_000_000, date_time_format: "r" },
+        accepted: true,
+      },
+      {
+        name: "empty format and zero unix time accepted",
+        fields: { unix_time: 0, date_time_format: "" },
+        accepted: true,
+      },
+      {
+        name: "relative rejected",
+        fields: { unix_time: 1_800_000_000, date_time_format: "relative" },
+        errorField: "date_time_format",
+        errorValue: "relative",
+      },
+      {
+        name: "missing date time format rejected",
+        fields: { unix_time: 1_800_000_000 },
+        errorField: "date_time_format",
+      },
+      {
+        name: "missing unix time rejected",
+        fields: { date_time_format: "r" },
+        errorField: "unix_time",
+      },
+    ] as const;
+
+    for (const testCase of cases) {
+      const journal = new InMemoryJournal();
+      const result = new TelegramCodec().handleCall(
+        "sendRichMessage",
+        { chat_id: 42, rich_message: richMessage(testCase.fields) },
+        contextFor(journal),
+      );
+      if ("accepted" in testCase) {
+        expect(result.ok, testCase.name).toBe(true);
+        expect(journal.entries()[0]?.text, testCase.name).toBe("Deadline\nsoon");
+        continue;
+      }
+      expect(result, testCase.name).toMatchObject({ ok: false, error_code: 400 });
+      if (result.ok) throw new Error(`${testCase.name} was accepted`);
+      expect(result.description, testCase.name).toContain(testCase.errorField);
+      if ("errorValue" in testCase) {
+        expect(result.description, testCase.name).toContain(testCase.errorValue);
+      }
+      expect(journal.entries(), testCase.name).toHaveLength(0);
+    }
+  });
+
   it("edits a persistent rich message and acknowledges temporary drafts", () => {
     const codec = new TelegramCodec(fixedClock("2026-07-23T10:00:01.000Z"));
     const journal = new InMemoryJournal();
