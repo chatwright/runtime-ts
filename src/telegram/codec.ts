@@ -77,6 +77,7 @@ export interface TelegramInlineKeyboardButton {
   readonly text: string;
   readonly callback_data?: string;
   readonly url?: string;
+  readonly copy_text?: { readonly text: string };
 }
 
 export interface TelegramInlineKeyboardMarkup {
@@ -246,6 +247,10 @@ export class TelegramCodec implements PlatformCodec {
         return this.handleGetMe();
       case "sendMessage":
         return this.handleSendMessage(params, ctx);
+      case "sendRichMessage":
+        return this.handleSendRichMessage(params, ctx);
+      case "sendRichMessageDraft":
+        return this.handleSendRichMessageDraft(params);
       case "editMessageText":
         return this.handleEditMessageText(params, ctx);
       case "answerCallbackQuery":
@@ -302,11 +307,58 @@ export class TelegramCodec implements PlatformCodec {
     };
   }
 
+  private handleSendRichMessage(params: unknown, ctx: TelegramCallContext): TelegramResult {
+    const p = asRecord(params);
+    const chatId = toChatId(p?.chat_id);
+    const text = richMessageText(p?.rich_message);
+    const markup = asInlineKeyboardMarkup(p?.reply_markup);
+
+    if (chatId === undefined) return errorResult(400, "sendRichMessage: chat_id is required");
+    if (!text) return errorResult(400, "sendRichMessage: rich_message is required");
+
+    const journal = ctx.journalFor(chatId);
+    const messageId = this.reserveMessageId(chatId);
+    const at = this.clock();
+    journal.append({
+      direction: "bot",
+      kind: "message",
+      messageId,
+      refMessageId: 0,
+      version: 0,
+      text,
+      actions: actionsFromMarkup(markup),
+      method: "sendRichMessage",
+      at: at.toISOString(),
+      fromId: TELEGRAM_BOT_USER_ID,
+    });
+    return {
+      ok: true,
+      result: {
+        message_id: messageId,
+        from: toWireUser({ id: TELEGRAM_BOT_USER_ID, firstName: BOT_FIRST_NAME }, true),
+        chat: { id: chatId, type: "private" },
+        date: unixSeconds(at),
+        text,
+        ...(markup ? { reply_markup: markup } : {}),
+      },
+    };
+  }
+
+  private handleSendRichMessageDraft(params: unknown): TelegramResult<boolean> {
+    const p = asRecord(params);
+    const chatId = toChatId(p?.chat_id);
+    const text = richMessageText(p?.rich_message);
+    if (chatId === undefined || !text) {
+      return errorResult(400, "sendRichMessageDraft: chat_id and rich_message are required");
+    }
+    return { ok: true, result: true };
+  }
+
   private handleEditMessageText(params: unknown, ctx: TelegramCallContext): TelegramResult {
     const p = asRecord(params);
     const chatId = toChatId(p?.chat_id);
     const messageId = typeof p?.message_id === "number" ? p.message_id : undefined;
-    const text = typeof p?.text === "string" ? p.text : "";
+    const text = typeof p?.text === "string" ? p.text : richMessageText(p?.rich_message);
     const markup = asInlineKeyboardMarkup(p?.reply_markup);
 
     if (chatId === undefined || messageId === undefined) {
@@ -397,8 +449,86 @@ function actionsFromMarkup(
 ): readonly (readonly JournalAction[])[] | undefined {
   if (!markup) return undefined;
   return markup.inline_keyboard.map((row) =>
-    row.map((button) => ({ label: button.text, id: button.callback_data ?? "", url: button.url ?? "" })),
+    row.map((button) => ({
+      label: button.text,
+      id: button.callback_data ?? "",
+      url: button.url ?? "",
+      ...(button.copy_text?.text ? { copyText: button.copy_text.text } : {}),
+    })),
   );
+}
+
+function richMessageText(value: unknown): string {
+  const rich = asRecord(value);
+  if (!rich) return "";
+  if (typeof rich.html === "string") return stripHtml(rich.html).trim();
+  if (typeof rich.markdown === "string") return rich.markdown.trim();
+  if (!Array.isArray(rich.blocks)) return "";
+  return flattenBlocks(rich.blocks).join("\n").trim();
+}
+
+function flattenBlocks(blocks: readonly unknown[], prefix = ""): string[] {
+  const lines: string[] = [];
+  for (const candidate of blocks) {
+    const block = asRecord(candidate);
+    if (!block) continue;
+    switch (block.type) {
+      case "divider":
+        lines.push("—");
+        break;
+      case "table":
+        {
+          const caption = richTextValue(block.caption);
+          if (caption) lines.push(prefix + caption);
+        }
+        if (Array.isArray(block.cells)) {
+          for (const candidateRow of block.cells) {
+            if (!Array.isArray(candidateRow)) continue;
+            lines.push(
+              candidateRow
+                .map((candidateCell) => richTextValue(asRecord(candidateCell)?.text))
+                .join(" | "),
+            );
+          }
+        }
+        break;
+      case "details": {
+        const summary = richTextValue(block.summary);
+        if (summary) lines.push(prefix + summary);
+        if (Array.isArray(block.blocks)) lines.push(...flattenBlocks(block.blocks, prefix));
+        break;
+      }
+      case "list":
+        if (Array.isArray(block.items)) {
+          for (const candidateItem of block.items) {
+            const item = asRecord(candidateItem);
+            if (Array.isArray(item?.blocks)) lines.push(...flattenBlocks(item.blocks, "• "));
+          }
+        }
+        break;
+      default: {
+        const text = richTextValue(block.text);
+        if (text) lines.push(prefix + text);
+        if (Array.isArray(block.blocks)) lines.push(...flattenBlocks(block.blocks, prefix));
+      }
+    }
+  }
+  return lines;
+}
+
+function richTextValue(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (Array.isArray(value)) return value.map(richTextValue).join("");
+  const rich = asRecord(value);
+  if (!rich) return "";
+  if (typeof rich.text !== "undefined") return richTextValue(rich.text);
+  if (typeof rich.alternative_text === "string") return rich.alternative_text;
+  if (typeof rich.expression === "string") return rich.expression;
+  return "";
+}
+
+function stripHtml(value: string): string {
+  return value.replace(/<[^>]*>/g, "").replaceAll("&lt;", "<").replaceAll("&gt;", ">").replaceAll("&amp;", "&");
 }
 
 function toWireUser(user: TelegramUser, isBot: boolean): TelegramWireUser {

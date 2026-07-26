@@ -2,9 +2,10 @@
  * `@chatwright/runtime` — the browser runtime of Chatwright.
  *
  * @remarks
- * First slice: the iframe transport (`IframeHost`), the Telegram codec
- * (text, inline buttons, edits), the WhatsApp codec (text only — no
- * interactive buttons, no edits; see `src/whatsapp/codec.ts`), the
+ * First slice: the iframe transport (`IframeHost`), HTTP webhook delivery
+ * with inline-response method processing, the Telegram codec (text, inline
+ * buttons, edits), the WhatsApp codec (text only — no interactive buttons,
+ * no edits; see `src/whatsapp/codec.ts`), the
  * `Session` orchestrator that ties them together and produces run-bundle v1
  * documents, and the `expect/` layer —
  * `chatOf`/`Chat`/`BotMessageExpectation` — the deterministic scenario verbs

@@ -11,7 +11,7 @@ they share one namespace; package names don't, because each registry is
 already language-scoped. The Go sibling follows the same rule: repository
 runtime-go, module `chatwright.dev/runtime`.
 
-## Status: iframe transport + Telegram & WhatsApp codecs + deterministic expect layer
+## Status: iframe transport + HTTP webhook/inline-response slice + Telegram & WhatsApp codecs + deterministic expect layer
 
 This repository has moved past interfaces-only. Working, tested code now
 exists for all three seams decision 0012 names, wired together by a
@@ -112,11 +112,10 @@ Two transports share that model, "point your bot at Chatwright":
   envelope shape is [`src/protocol/envelope.ts`](src/protocol/envelope.ts);
   the working host-side implementation is
   [`src/protocol/iframe-host.ts`](src/protocol/iframe-host.ts) (this slice).
-- **Remote HTTPS** — the runtime exposes an emulated platform API base URL;
-  the bot swaps its API root, registers a webhook or long-polls, and calls
-  platform methods against the emulated server — exactly today's Go-runtime
-  pattern, promoted to a public contract. Not implemented in this slice;
-  `HttpTransport` remains a scaffold stub.
+- **Remote HTTPS** — `HttpTransport` implements webhook delivery and executes
+  platform method calls returned inline in successful webhook responses
+  (Telegram JSON and form encoding). The broader emulated platform API base
+  URL and long-polling surface remain deferred.
 
 Full rationale lives in decision
 [0012](https://github.com/chatwright/chatwright/blob/main/spec/decisions/0012-black-box-bot-protocol.md)
@@ -128,7 +127,7 @@ Full rationale lives in decision
 src/
   protocol/envelope.ts       the iframe postMessage envelope + PROTOCOL_VERSION
   protocol/iframe-host.ts    IframeHost: handshake, port management, call correlation
-  transport/transport.ts     BotTransport interface; IframeTransport (delegates to IframeHost); HttpTransport stub
+  transport/transport.ts     BotTransport interface; IframeTransport; HTTP webhook/inline-response transport
   platform/codec.ts          PlatformCodec interface (per-platform, Telegram first)
   telegram/codec.ts          TelegramCodec: builds updates, answers Bot API calls
   whatsapp/codec.ts          WhatsAppCodec: builds webhook updates, answers sendMessage (text only)
@@ -247,7 +246,7 @@ table's prose.
 | Capability | Status |
 |---|---|
 | Iframe + `postMessage` transport | **Supported** — handshake, ordered update queueing, session reset on repeated hello, call/result correlation. See `docs/architecture.md`. |
-| Remote HTTPS transport | **Not implemented.** `HttpTransport` remains a scaffold stub. |
+| Remote HTTPS transport | **Partially supported.** `HttpTransport` posts updates to a webhook and executes JSON/form-encoded platform methods returned inline in successful webhook responses through the normal `Session` codec/journal path. An emulated platform API listener, independent bot calls, and long polling remain deferred. |
 | Multiple bots per session | **Not implemented.** `Session.registerBot` supports exactly one bot; a second call throws. |
 | Multiple chats per session | **Supported** — `Session` journals and bundles every `chatId` it is addressed with. |
 | Group/channel chats | **Not implemented.** Every Telegram chat is built as `type: "private"`; WhatsApp has no chat-type field on the wire at all — every update is simply addressed to one `wa_id`. |
