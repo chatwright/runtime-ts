@@ -79,6 +79,32 @@ describe("Chat: the founder's canonical case", () => {
   });
 });
 
+describe("Chat: developer callback submission", () => {
+  it("submits stale callback data against an exact message without an advertised action", async () => {
+    const { session, host, bot } = wire();
+    cleanups.push(() => {
+      host.close();
+      bot.close();
+    });
+    bot.sendHello();
+    await flushMacrotasks();
+
+    const chat = chatOf(session, 42, { id: 7, firstName: "Alice" });
+    chat.submitCallback(99, "pref?g=old&a=x&x=forged");
+    await flushMacrotasks();
+
+    const update = bot.updates()[0];
+    expect(update?.kind).toBe("update");
+    if (update?.kind === "update") {
+      const payload = update.payload as {
+        callback_query?: { data?: string; message?: { message_id?: number } };
+      };
+      expect(payload.callback_query?.data).toBe("pref?g=old&a=x&x=forged");
+      expect(payload.callback_query?.message?.message_id).toBe(99);
+    }
+  });
+});
+
 describe("Chat: expectBotMessage timeout", () => {
   it("rejects with a transcript-bearing Error when no reply arrives in time", async () => {
     const { session, host, bot } = wire();

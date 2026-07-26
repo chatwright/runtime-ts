@@ -1,8 +1,9 @@
 # `runtime-ts` architecture — first slice
 
-**Status:** iframe transport + Telegram codec (text, inline buttons, edits) +
-WhatsApp codec (text only — no buttons, no edits) + the deterministic expect
-layer (`src/expect/`). Everything below describes what is actually
+**Status:** iframe transport + HTTP webhook/inline-response delivery +
+Telegram codec (text, inline buttons, edits) + WhatsApp codec (text only —
+no buttons, no edits) + the deterministic expect layer (`src/expect/`).
+Everything below describes what is actually
 implemented in `src/` today, not an aspiration — see
 [README.md](../README.md#fidelity) for the fidelity list and
 [`docs/runtime-parity.md`](https://github.com/chatwright/chatwright/blob/main/docs/runtime-parity.md)
@@ -15,7 +16,9 @@ One `Session` instance:
 
 - Registers **exactly one bot** via `registerBot(transport)`, where
   `transport` is anything implementing [`BotTransport`](../src/transport/transport.ts)
-  — in practice, an [`IframeHost`](../src/protocol/iframe-host.ts).
+  — an [`IframeHost`](../src/protocol/iframe-host.ts), in-process example
+  bot, or the webhook-delivery slice of
+  [`HttpTransport`](../src/transport/transport.ts).
 - Turns `submitText(chatId, user, text)` / `submitClick(chatId, user,
   actionId, targetMessageId)` calls into platform-native updates, delivered
   to the bot via the transport.
@@ -92,6 +95,24 @@ exactly as a real iframe-hosted bot would — see "Testing" below.
 `transport/transport.ts`'s `IframeTransport` is now a thin
 `BotTransport`-shaped wrapper over `IframeHost`, kept for callers that think
 in terms of "the iframe transport."
+
+### 1b. HTTP webhook seam — `HttpTransport`
+
+[`HttpTransport`](../src/transport/transport.ts) implements the part of the
+remote-HTTPS transport needed to deliver an update to a black-box bot
+webhook. A successful response may be empty, a plain acknowledgement, or a
+Telegram-style inline Bot API method. JSON and
+`application/x-www-form-urlencoded` inline methods are normalised to an
+ordinary `BotCall`; `Session` therefore validates and journals them through
+the exact same `PlatformCodec.handleCall` path as iframe calls. This matches
+Telegram's latency-saving webhook response behaviour and `runtime-go`'s
+emulator.
+
+The class intentionally does not claim the rest of the remote transport yet:
+there is no emulated platform API listener for independent bot requests and
+no long-polling surface. `waitForIdle()` exposes asynchronous delivery errors
+to lifecycle code and deterministic tests; `onError` is available to hosts
+that need immediate reporting.
 
 Building `IframeHost` correctly surfaced one scaffold defect worth
 recording: `src/protocol/envelope.ts`'s `HelloMessage`/`HelloAckMessage`
@@ -413,9 +434,10 @@ Explicitly out of scope for this slice, left to the named research items:
   `capabilities` are received but not yet acted on), protocol-version
   mismatch handling (`protocolVersion` is exchanged but never gated on),
   and iframe `sandbox`/CSP attributes.
-- The remote-HTTPS transport (`HttpTransport`) remains an intentional
-  scaffold stub — out of scope for this slice, which covers the iframe
-  transport only.
+- The remote-HTTPS transport beyond `HttpTransport`'s implemented webhook
+  delivery and inline-response processing remains deferred: an emulated
+  platform API listener, independent bot requests, and polling are not part
+  of this slice.
 - **I-71** (portable scenario format): `src/expect/` lands the deterministic
   verb *API* — scenarios are still written directly in TypeScript against
   `Chat`/`BotMessageExpectation`, not against a declarative, runtime-neutral

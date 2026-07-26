@@ -93,40 +93,198 @@ export class IframeTransport implements BotTransport {
   }
 }
 
+/** Fetch-compatible function accepted by {@link HttpTransport}. */
+export type HttpTransportFetch = (
+  input: RequestInfo | URL,
+  init?: RequestInit,
+) => Promise<Response>;
+
+/** Construction options for the implemented webhook-delivery slice of {@link HttpTransport}. */
+export interface HttpTransportOptions {
+  /** The black-box bot's webhook endpoint. */
+  readonly webhookURL: string;
+  /** Additional webhook request headers, for example a Telegram secret-token header. */
+  readonly headers?: Readonly<Record<string, string>>;
+  /** Injectable fetch implementation; defaults to the environment's global `fetch`. */
+  readonly fetch?: HttpTransportFetch;
+  /** Optional asynchronous delivery-error observer. */
+  readonly onError?: (error: Error) => void;
+}
+
 /**
- * The remote-HTTPS transport: the runtime exposes an emulated platform API
- * base URL; the bot swaps its API root, registers a webhook or long-polls,
- * and calls platform methods against the emulated server — the same
- * pattern the Go runtime already proves for `BotAPIURL()`-pointed bots
- * (decision 0012's "Context").
+ * The remote-HTTPS transport's webhook-delivery slice.
  *
- * @remarks Scaffold — specified in research item I-68.
+ * It posts platform updates to a black-box bot and, crucially, processes the
+ * platform method a bot may return directly in the successful webhook HTTP
+ * response body. Telegram permits this latency-saving response form. Both
+ * JSON and `application/x-www-form-urlencoded` bodies are normalised into a
+ * regular {@link BotCall}, so `Session` routes them through the same platform
+ * codec and journal path as calls received over the iframe transport.
  *
- * No construction logic exists yet; the constructor is a placeholder that
- * intentionally throws so this class cannot be mistaken for a working
- * transport before I-68 lands.
+ * The broader emulated platform API listener and long-polling surface remain
+ * deferred to I-68. This class therefore does not yet provide a Bot API base
+ * URL for independent bot requests; it faithfully covers webhook delivery
+ * and inline webhook responses only.
  */
 export class HttpTransport implements BotTransport {
-  constructor() {
-    throw new Error(
-      "HttpTransport is a scaffold stub — see research item I-68 " +
-        "(chatwright/chatwright spec/research/knowledge-platform.md)",
-    );
+  readonly #options: HttpTransportOptions;
+  readonly #fetch: HttpTransportFetch;
+  readonly #abortController = new AbortController();
+  readonly #pendingInlineCalls = new Map<string, string>();
+  #callHandler: ((call: BotCall) => void) | undefined;
+  #deliveryTail: Promise<void> = Promise.resolve();
+  #deliveryError: Error | undefined;
+  #nextCallID = 0;
+  #closed = false;
+
+  constructor(options: HttpTransportOptions) {
+    const webhookURL = options.webhookURL.trim();
+    if (!webhookURL) {
+      throw new Error("HttpTransport: webhookURL is required");
+    }
+    let parsedURL: URL;
+    try {
+      parsedURL = new URL(webhookURL);
+    } catch {
+      throw new Error(`HttpTransport: invalid webhookURL ${JSON.stringify(options.webhookURL)}`);
+    }
+    if (parsedURL.protocol !== "http:" && parsedURL.protocol !== "https:") {
+      throw new Error("HttpTransport: webhookURL must use http or https");
+    }
+    this.#options = { ...options, webhookURL };
+    this.#fetch = options.fetch ?? globalThis.fetch.bind(globalThis);
   }
 
-  deliverUpdate(_update: unknown): void {
-    throw new Error("not implemented — scaffold stub, see I-68");
+  deliverUpdate(update: unknown): void {
+    this.#requireOpen();
+    const delivery = this.#deliveryTail.then(() => this.#postUpdate(update));
+    this.#deliveryTail = delivery.catch((cause: unknown) => {
+      const error = asError(cause);
+      this.#deliveryError ??= error;
+      this.#options.onError?.(error);
+    });
   }
 
-  onCall(_handler: (call: BotCall) => void): void {
-    throw new Error("not implemented — scaffold stub, see I-68");
+  onCall(handler: (call: BotCall) => void): void {
+    this.#requireOpen();
+    this.#callHandler = handler;
   }
 
-  respond(_id: string, _result: unknown): void {
-    throw new Error("not implemented — scaffold stub, see I-68");
+  respond(id: string, result: unknown): void {
+    const method = this.#pendingInlineCalls.get(id);
+    if (method === undefined) {
+      throw new Error(`HttpTransport.respond: no pending inline call with id ${JSON.stringify(id)}`);
+    }
+    this.#pendingInlineCalls.delete(id);
+    if (isRecord(result) && result["ok"] === false) {
+      const code = typeof result["error_code"] === "number" ? ` ${result["error_code"]}` : "";
+      const description =
+        typeof result["description"] === "string" ? `: ${result["description"]}` : "";
+      throw new Error(`HttpTransport: inline webhook method ${method} failed${code}${description}`);
+    }
+    // Telegram does not receive a second response for a method it supplied in
+    // the webhook response body. The emulated result has already served its
+    // purpose by validating and journalling the method through Session.
   }
 
   close(): void {
-    throw new Error("not implemented — scaffold stub, see I-68");
+    if (this.#closed) return;
+    this.#closed = true;
+    this.#abortController.abort();
+    this.#pendingInlineCalls.clear();
+    this.#callHandler = undefined;
   }
+
+  /**
+   * Waits until every webhook delivery queued so far has settled.
+   *
+   * Scenario expectations normally observe the journal and do not need this;
+   * it is useful for lifecycle code and for surfacing asynchronous transport
+   * failures without relying on an `onError` callback.
+   */
+  async waitForIdle(): Promise<void> {
+    await this.#deliveryTail;
+    if (this.#deliveryError) throw this.#deliveryError;
+  }
+
+  async #postUpdate(update: unknown): Promise<void> {
+    const headers = new Headers(this.#options.headers);
+    if (!headers.has("content-type")) headers.set("content-type", "application/json");
+    const response = await this.#fetch(this.#options.webhookURL, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(update),
+      signal: this.#abortController.signal,
+    });
+    const responseBody = await response.text();
+    if (!response.ok) {
+      const detail = responseBody.trim();
+      throw new Error(
+        `HttpTransport: webhook returned status ${response.status}` +
+          (detail ? `: ${detail.slice(0, 1 << 20)}` : ""),
+      );
+    }
+    const inlineCall = parseInlineWebhookCall(
+      responseBody,
+      response.headers.get("content-type") ?? "",
+    );
+    if (!inlineCall) return;
+    if (!this.#callHandler) {
+      throw new Error("HttpTransport: inline webhook method received before onCall was registered");
+    }
+    const id = `http-inline-${++this.#nextCallID}`;
+    this.#pendingInlineCalls.set(id, inlineCall.method);
+    try {
+      this.#callHandler({ id, method: inlineCall.method, payload: inlineCall.params });
+    } catch (cause) {
+      this.#pendingInlineCalls.delete(id);
+      throw cause;
+    }
+    if (this.#pendingInlineCalls.has(id)) {
+      this.#pendingInlineCalls.delete(id);
+      throw new Error(`HttpTransport: inline webhook method ${inlineCall.method} was not answered`);
+    }
+  }
+
+  #requireOpen(): void {
+    if (this.#closed) throw new Error("HttpTransport: transport is closed");
+  }
+}
+
+interface InlineWebhookCall {
+  readonly method: string;
+  readonly params: Readonly<Record<string, unknown>>;
+}
+
+function parseInlineWebhookCall(body: string, contentType: string): InlineWebhookCall | undefined {
+  const trimmed = body.trim();
+  if (!trimmed) return undefined;
+  const isJSON = contentType.toLowerCase().startsWith("application/json") || trimmed.startsWith("{");
+  if (isJSON) {
+    let value: unknown;
+    try {
+      value = JSON.parse(trimmed) as unknown;
+    } catch (cause) {
+      throw new Error(`HttpTransport: invalid inline platform JSON: ${asError(cause).message}`);
+    }
+    if (!isRecord(value) || typeof value["method"] !== "string" || value["method"] === "") {
+      return undefined;
+    }
+    const { method, ...params } = value;
+    return { method, params };
+  }
+
+  const values = new URLSearchParams(trimmed);
+  const method = values.get("method") ?? "";
+  if (!method) return undefined;
+  values.delete("method");
+  return { method, params: Object.fromEntries(values.entries()) };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function asError(value: unknown): Error {
+  return value instanceof Error ? value : new Error(String(value));
 }

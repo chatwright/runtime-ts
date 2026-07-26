@@ -192,11 +192,16 @@ byte-identical copy of `runtime-go`'s own fixture, diffed at copy time).
 
 ### Deviations (each intentional, declared)
 
-1. **Bot transport support is the exact mirror image of `runtime-go`'s.**
+1. **Scenario-document bot transport support remains the mirror image of
+   `runtime-go`'s, while the low-level HTTP transport now has a webhook
+   delivery slice.**
    `runtime-go` accepts `transport: "http"` and refuses `"iframe"` by name
    (no iframe host). `runtime-ts` accepts `"iframe"` (✅ Works — `IframeHost`)
-   and refuses `"http"` by name (⛔ Blocked — no inbound HTTP server surface
-   in a browser page; see the register above). Both refusals use the same
+   and refuses `"http"` by name for scenario-document Build because it still
+   has no emulated platform API listener in a browser page. The low-level
+   `HttpTransport` does implement outbound webhook delivery and Telegram
+   JSON/form inline-response method processing; that does not yet satisfy a
+   URL-addressed scenario's complete API-root contract. Both refusals use the same
    issue code, `unsupported-transport`, and name the transport explicitly —
    the format's `unsupported-transport-is-refused-by-name` acceptance
    criterion is satisfied by each runtime refusing the OTHER runtime's

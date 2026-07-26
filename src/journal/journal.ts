@@ -53,6 +53,8 @@ export interface JournalAction {
   readonly label: string;
   readonly id: string;
   readonly url: string;
+  /** Text copied by a platform-native copy action, when present. */
+  readonly copyText?: string;
 }
 
 /**

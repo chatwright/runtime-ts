@@ -117,6 +117,176 @@ describe("TelegramCodec.handleCall: sendMessage", () => {
   });
 });
 
+describe("TelegramCodec.handleCall: native rich messages", () => {
+  it("projects rich blocks and copy-text buttons into the neutral journal", () => {
+    const codec = new TelegramCodec(fixedClock("2026-07-23T10:00:01.000Z"));
+    const journal = new InMemoryJournal();
+
+    const result = codec.handleCall(
+      "sendRichMessage",
+      {
+        chat_id: 42,
+        rich_message: {
+          blocks: [
+            { type: "heading", text: "🃏 Preferans" },
+            {
+              type: "table",
+              caption: "Confirmed wallet settlement",
+              cells: [
+                [{ text: "Player" }, { text: "Score" }],
+                [{ text: "Alice" }, { text: "10" }],
+              ],
+            },
+            {
+              type: "details",
+              summary: "📖 Rules",
+              blocks: [{ type: "paragraph", text: "Follow suit." }],
+            },
+          ],
+        },
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: "📋 Copy invite", copy_text: { text: "https://t.me/SneatBot?start=pref_abc" } }],
+          ],
+        },
+      },
+      contextFor(journal),
+    );
+
+    expect(result.ok).toBe(true);
+    const [entry] = journal.entries();
+    expect(entry?.text).toBe(
+      "🃏 Preferans\nConfirmed wallet settlement\nPlayer | Score\nAlice | 10\n📖 Rules\nFollow suit.",
+    );
+    expect(entry?.actions).toEqual([
+      [
+        {
+          label: "📋 Copy invite",
+          id: "",
+          url: "",
+          copyText: "https://t.me/SneatBot?start=pref_abc",
+        },
+      ],
+    ]);
+  });
+
+  it("matches Telegram's nested date-time field conformance", () => {
+    const richMessage = (dateTimeFields: Record<string, unknown>) => ({
+      blocks: [
+        {
+          type: "details",
+          summary: "Deadline",
+          blocks: [
+            {
+              type: "paragraph",
+              text: [
+                {
+                  type: "bold",
+                  text: [
+                    {
+                      type: "date_time",
+                      text: "soon",
+                      ...dateTimeFields,
+                    },
+                  ],
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    });
+
+    const cases = [
+      {
+        name: "r accepted",
+        fields: { unix_time: 1_800_000_000, date_time_format: "r" },
+        accepted: true,
+      },
+      {
+        name: "empty format and zero unix time accepted",
+        fields: { unix_time: 0, date_time_format: "" },
+        accepted: true,
+      },
+      {
+        name: "relative rejected",
+        fields: { unix_time: 1_800_000_000, date_time_format: "relative" },
+        errorField: "date_time_format",
+        errorValue: "relative",
+      },
+      {
+        name: "missing date time format rejected",
+        fields: { unix_time: 1_800_000_000 },
+        errorField: "date_time_format",
+      },
+      {
+        name: "missing unix time rejected",
+        fields: { date_time_format: "r" },
+        errorField: "unix_time",
+      },
+    ] as const;
+
+    for (const testCase of cases) {
+      const journal = new InMemoryJournal();
+      const result = new TelegramCodec().handleCall(
+        "sendRichMessage",
+        { chat_id: 42, rich_message: richMessage(testCase.fields) },
+        contextFor(journal),
+      );
+      if ("accepted" in testCase) {
+        expect(result.ok, testCase.name).toBe(true);
+        expect(journal.entries()[0]?.text, testCase.name).toBe("Deadline\nsoon");
+        continue;
+      }
+      expect(result, testCase.name).toMatchObject({ ok: false, error_code: 400 });
+      if (result.ok) throw new Error(`${testCase.name} was accepted`);
+      expect(result.description, testCase.name).toContain(testCase.errorField);
+      if ("errorValue" in testCase) {
+        expect(result.description, testCase.name).toContain(testCase.errorValue);
+      }
+      expect(journal.entries(), testCase.name).toHaveLength(0);
+    }
+  });
+
+  it("edits a persistent rich message and acknowledges temporary drafts", () => {
+    const codec = new TelegramCodec(fixedClock("2026-07-23T10:00:01.000Z"));
+    const journal = new InMemoryJournal();
+    codec.handleCall(
+      "sendRichMessage",
+      { chat_id: 42, rich_message: { blocks: [{ type: "paragraph", text: "Lobby" }] } },
+      contextFor(journal),
+    );
+
+    const edit = codec.handleCall(
+      "editMessageText",
+      {
+        chat_id: 42,
+        message_id: 1,
+        rich_message: {
+          blocks: [
+            {
+              type: "table",
+              caption: "Confirmed wallet settlement",
+              cells: [[{ text: "Alice" }, { text: "+5 🪙" }]],
+            },
+          ],
+        },
+      },
+      contextFor(journal),
+    );
+    expect(edit.ok).toBe(true);
+    expect(journal.entries()[1]?.text).toBe("Confirmed wallet settlement\nAlice | +5 🪙");
+
+    const draft = codec.handleCall(
+      "sendRichMessageDraft",
+      { chat_id: 42, draft_id: 9, rich_message: { blocks: [{ type: "thinking", text: "🤖 Thinking…" }] } },
+      contextFor(journal),
+    );
+    expect(draft).toEqual({ ok: true, result: true });
+    expect(journal.entries()).toHaveLength(2);
+  });
+});
+
 describe("TelegramCodec.handleCall: editMessageText", () => {
   it("appends a new, versioned entry instead of mutating the original", () => {
     const codec = new TelegramCodec(fixedClock("2026-07-23T10:00:01.000Z"));

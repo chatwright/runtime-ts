@@ -138,6 +138,24 @@ export class Chat {
   }
 
   /**
+   * Submits callback data against an exact message without requiring that the
+   * callback is currently advertised. This developer-only protocol verb is
+   * intended for stale/forged callback recovery tests; actor flows must use
+   * {@link click}.
+   */
+  submitCallback(targetMessageId: number, callbackData: string): this {
+    if (!Number.isInteger(targetMessageId) || targetMessageId <= 0) {
+      throw new Error("chatwright: submitCallback requires a positive message id");
+    }
+    if (!callbackData) {
+      throw new Error("chatwright: submitCallback requires callback data");
+    }
+    this.lastSentAt = Date.now();
+    this.session.submitClick(this.chatId, this.user, callbackData, targetMessageId);
+    return this;
+  }
+
+  /**
    * Waits for the bot's next not-yet-consumed message to this chat, up to
    * `timeoutMs` (default {@link DEFAULT_SAFETY_TIMEOUT_MS}), resolving to a
    * {@link BotMessageExpectation}. Rejects with a transcript-bearing `Error`
