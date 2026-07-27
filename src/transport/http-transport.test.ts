@@ -76,7 +76,6 @@ describe("HttpTransport: Telegram inline webhook Bot API responses", () => {
       "inline webhook method sendMessage failed 400: sendMessage: text is required",
     );
   });
-
   it("processes an inline photo answer returned in the webhook response body", async () => {
     const fetch = responseFetch(
       JSON.stringify({
