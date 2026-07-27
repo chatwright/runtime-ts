@@ -55,6 +55,10 @@ export interface JournalAction {
   readonly url: string;
   /** Text copied by a platform-native copy action, when present. */
   readonly copyText?: string;
+  /** Query prefilled by a platform-native inline-share action. */
+  readonly inlineQuery?: string;
+  /** True when activating the action opens the platform's inline mode. */
+  readonly opensInlineQuery?: boolean;
 }
 
 /**

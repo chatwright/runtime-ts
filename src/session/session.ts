@@ -27,7 +27,11 @@
 import type { BotCall, BotTransport } from "../transport/transport.js";
 import type { Journal, JournalAction, JournalEntry } from "../journal/journal.js";
 import { InMemoryJournal, systemClock, type Clock } from "../journal/in-memory-journal.js";
-import type { PlatformCodec, PlatformUser } from "../platform/codec.js";
+import type {
+  PlatformCodec,
+  PlatformInlineQueryAnswer,
+  PlatformUser,
+} from "../platform/codec.js";
 import { TelegramCodec } from "../telegram/codec.js";
 
 /** The run-bundle v1 format identifier every bundle this package produces declares. */
@@ -101,6 +105,8 @@ export class Session {
 
   private transport: BotTransport | undefined;
   private readonly journals = new Map<number, InMemoryJournal>();
+  private readonly inlineAnswers = new Map<string, PlatformInlineQueryAnswer>();
+  private readonly inlineAnswerListeners = new Set<(queryId: string) => void>();
   private humanPlatformIdentity: WirePlatformIdentity | undefined;
 
   constructor(options: SessionOptions = {}) {
@@ -129,6 +135,7 @@ export class Session {
     transport.onCall((call: BotCall) => {
       const result = this.codec.handleCall(call.method, call.payload, {
         journalFor: (chatId) => this.journalFor(chatId),
+        captureInlineAnswer: (answer) => this.captureInlineAnswer(answer),
       });
       transport.respond(call.id, result);
     });
@@ -166,6 +173,47 @@ export class Session {
     const journal = this.journalFor(chatId);
     const update = this.codec.buildCallbackUpdate(chatId, user, targetMessageId, actionId, journal);
     transport.deliverUpdate(update);
+  }
+
+  /** Delivers a chat-independent platform inline query and returns its correlation id. */
+  submitInlineQuery(user: PlatformUser, query: string, offset = ""): string {
+    const transport = this.requireTransport();
+    if (!this.codec.buildInlineQueryUpdate) {
+      throw new Error(
+        `Session.submitInlineQuery: the "${this.codec.platform}" codec declares no inline-query support`,
+      );
+    }
+    this.humanPlatformIdentity ??= toPlatformIdentity(user);
+    const built = this.codec.buildInlineQueryUpdate(user, query, offset);
+    transport.deliverUpdate(built.update);
+    return built.queryId;
+  }
+
+  /** Waits without polling for the bot's answer to an inline query. */
+  waitForInlineQueryAnswer(queryId: string, timeoutMs: number): Promise<PlatformInlineQueryAnswer> {
+    const current = this.inlineAnswers.get(queryId);
+    if (current) return Promise.resolve(cloneInlineAnswer(current));
+    return new Promise<PlatformInlineQueryAnswer>((resolve, reject) => {
+      let settled = false;
+      const finish = (answer?: PlatformInlineQueryAnswer) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        this.inlineAnswerListeners.delete(listener);
+        if (answer) resolve(cloneInlineAnswer(answer));
+        else reject(new Error(
+          `chatwright: expected an answer to inline query ${JSON.stringify(queryId)} ` +
+            `within ${timeoutMs}ms (safety timeout), but none arrived`,
+        ));
+      };
+      const listener = (answeredQueryId: string) => {
+        if (answeredQueryId === queryId) finish(this.inlineAnswers.get(queryId));
+      };
+      const timer = setTimeout(() => finish(), timeoutMs);
+      this.inlineAnswerListeners.add(listener);
+      const raced = this.inlineAnswers.get(queryId);
+      if (raced) finish(raced);
+    });
   }
 
   /** Returns (creating if necessary) the append-only journal for one chat. */
@@ -263,6 +311,11 @@ export class Session {
     return journal;
   }
 
+  private captureInlineAnswer(answer: PlatformInlineQueryAnswer): void {
+    this.inlineAnswers.set(answer.queryId, cloneInlineAnswer(answer));
+    for (const listener of [...this.inlineAnswerListeners]) listener(answer.queryId);
+  }
+
   private requireTransport(): BotTransport {
     if (!this.transport) {
       throw new Error("Session: no bot registered — call registerBot() before submitting events");
@@ -295,5 +348,24 @@ function toWireJournalEntry(entry: JournalEntry): Record<string, unknown> {
 }
 
 function cloneActionRow(row: readonly JournalAction[]): Record<string, unknown>[] {
-  return row.map((action) => ({ label: action.label, id: action.id, url: action.url }));
+  return row.map((action) => ({
+    label: action.label,
+    id: action.id,
+    url: action.url,
+    ...(action.copyText !== undefined ? { copyText: action.copyText } : {}),
+    ...(action.inlineQuery !== undefined ? { inlineQuery: action.inlineQuery } : {}),
+    ...(action.opensInlineQuery !== undefined ? { opensInlineQuery: action.opensInlineQuery } : {}),
+  }));
+}
+
+function cloneInlineAnswer(answer: PlatformInlineQueryAnswer): PlatformInlineQueryAnswer {
+  return {
+    ...answer,
+    results: answer.results.map((result) => ({
+      ...result,
+      ...(result.actions
+        ? { actions: result.actions.map((row) => row.map((action) => ({ ...action }))) }
+        : {}),
+    })),
+  };
 }

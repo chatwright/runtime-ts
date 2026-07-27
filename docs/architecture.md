@@ -150,6 +150,11 @@ as an algorithm (never as shared code, per decision 0012):
   call happened to carry (best-effort) — the same honesty rule as
   `Emulator.handleUnsupported`: an unrecognised call is surfaced, never
   silently swallowed.
+- `buildInlineQueryUpdate` emits Telegram's chat-independent `inline_query`
+  update. `answerInlineQuery` is correlated to that query and retained by
+  `Session` as a separate observable answer. Photo result URLs, captions and
+  Join keyboards are normalised, but no chat message is fabricated: Telegram
+  only posts one after the user selects a result.
 
 **Deliberate narrowing versus `runtime-go`.** `Emulator` also
 acknowledges `setWebhook`, `deleteWebhook` and `setMyCommands` as silent

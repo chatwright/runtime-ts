@@ -66,6 +66,7 @@ import type { TelegramUser } from "../telegram/codec.js";
 import type { Session } from "../session/session.js";
 import type { JournalAction, JournalEntry } from "../journal/journal.js";
 import { BotMessageExpectation, type MessageRef } from "./bot-message.js";
+import { InlineQueryExpectation } from "./inline-query.js";
 import { renderTranscript } from "./transcript.js";
 import { latestEntryForMessage, nthOutboundMessage, waitForCondition } from "./wait.js";
 
@@ -107,6 +108,13 @@ export class Chat {
     return this;
   }
 
+  /** Delivers a chat-independent inline query and returns its lazy answer expectation. */
+  sendInlineQuery(query: string): InlineQueryExpectation {
+    this.lastSentAt = Date.now();
+    const queryId = this.session.submitInlineQuery(this.user, query);
+    return new InlineQueryExpectation(this.session, queryId, this.safetyTimeoutMs);
+  }
+
   /**
    * Clicks the action (button) identified by `actionIdOrLabel` — matched
    * against either the action's stable id (Telegram `callback_data`) or its
@@ -126,6 +134,12 @@ export class Chat {
     if (!action) {
       throw new Error(
         `chatwright: no action with id or label ${JSON.stringify(actionIdOrLabel)} on message ${this.current.messageId}\n${this.transcript()}`,
+      );
+    }
+    if (action.opensInlineQuery) {
+      throw new Error(
+        `chatwright: action ${JSON.stringify(action.label)} opens inline mode; ` +
+          `call sendInlineQuery(${JSON.stringify(action.inlineQuery ?? "")}) to submit the resulting query`,
       );
     }
     this.lastSentAt = Date.now();

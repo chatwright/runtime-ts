@@ -52,7 +52,11 @@
 import type { Journal, JournalAction, JournalEntry } from "../journal/journal.js";
 import type { Clock } from "../journal/in-memory-journal.js";
 import { systemClock } from "../journal/in-memory-journal.js";
-import type { PlatformCodec } from "../platform/codec.js";
+import type {
+  PlatformCodec,
+  PlatformInlineQueryAnswer,
+  PlatformInlineQueryResult,
+} from "../platform/codec.js";
 
 /** The Telegram user id this codec always assigns to the emulated bot. */
 export const TELEGRAM_BOT_USER_ID = 1;
@@ -69,6 +73,7 @@ export interface TelegramUser {
   readonly firstName: string;
   readonly lastName?: string;
   readonly username?: string;
+  readonly languageCode?: string;
 }
 
 // ---- Telegram Bot API wire shapes (the subset this slice emulates) -------
@@ -78,6 +83,15 @@ export interface TelegramInlineKeyboardButton {
   readonly callback_data?: string;
   readonly url?: string;
   readonly copy_text?: { readonly text: string };
+  readonly switch_inline_query?: string;
+  readonly switch_inline_query_current_chat?: string;
+  readonly switch_inline_query_chosen_chat?: {
+    readonly query?: string;
+    readonly allow_user_chats?: boolean;
+    readonly allow_bot_chats?: boolean;
+    readonly allow_group_chats?: boolean;
+    readonly allow_channel_chats?: boolean;
+  };
 }
 
 export interface TelegramInlineKeyboardMarkup {
@@ -96,6 +110,7 @@ export interface TelegramWireUser {
   readonly first_name: string;
   readonly last_name?: string;
   readonly username?: string;
+  readonly language_code?: string;
 }
 
 export interface TelegramMessage {
@@ -114,10 +129,18 @@ export interface TelegramCallbackQuery {
   readonly data: string;
 }
 
+export interface TelegramInlineQuery {
+  readonly id: string;
+  readonly from: TelegramWireUser;
+  readonly query: string;
+  readonly offset: string;
+}
+
 export interface TelegramUpdate {
   readonly update_id: number;
   readonly message?: TelegramMessage;
   readonly callback_query?: TelegramCallbackQuery;
+  readonly inline_query?: TelegramInlineQuery;
 }
 
 export interface TelegramOkResult<T = unknown> {
@@ -137,6 +160,8 @@ export type TelegramResult<T = unknown> = TelegramOkResult<T> | TelegramErrorRes
 export interface TelegramCallContext {
   /** Returns (creating if necessary) the journal for a given chat id. */
   readonly journalFor: (chatId: number) => Journal;
+  /** Retains a chat-independent inline-mode answer for scenario observation. */
+  readonly captureInlineAnswer?: (answer: PlatformInlineQueryAnswer) => void;
 }
 
 /**
@@ -151,6 +176,8 @@ export class TelegramCodec implements PlatformCodec {
 
   private readonly clock: Clock;
   private readonly nextMessageId = new Map<number, number>();
+  private readonly pendingInlineQueries = new Set<string>();
+  private readonly answeredInlineQueries = new Set<string>();
   private nextUpdateIdValue = 0;
 
   constructor(clock: Clock = systemClock) {
@@ -234,6 +261,25 @@ export class TelegramCodec implements PlatformCodec {
     };
   }
 
+  /** Builds Telegram's chat-independent `inline_query` update. */
+  buildInlineQueryUpdate(user: TelegramUser, query: string, offset: string) {
+    const updateId = this.reserveUpdateId();
+    const queryId = `iq${updateId}`;
+    this.pendingInlineQueries.add(queryId);
+    return {
+      queryId,
+      update: {
+        update_id: updateId,
+        inline_query: {
+          id: queryId,
+          from: toWireUser(user, false),
+          query,
+          offset,
+        },
+      } satisfies TelegramUpdate,
+    };
+  }
+
   // ---- Handling calls (bot-originated) ------------------------------------
 
   /**
@@ -257,9 +303,44 @@ export class TelegramCodec implements PlatformCodec {
         // Acknowledged, no-op: stops the client's loading spinner, produces
         // no observable chat content — matches Emulator's acknowledgedMethods.
         return { ok: true, result: true };
+      case "answerInlineQuery":
+        return this.handleAnswerInlineQuery(params, ctx);
       default:
         return this.handleUnsupported(method, params, ctx);
     }
+  }
+
+  private handleAnswerInlineQuery(params: unknown, ctx: TelegramCallContext): TelegramResult<boolean> {
+    const p = asRecord(params);
+    const queryId = typeof p?.inline_query_id === "string" ? p.inline_query_id : "";
+    if (!queryId) return errorResult(400, "answerInlineQuery: inline_query_id is required");
+    if (!this.pendingInlineQueries.has(queryId)) {
+      return errorResult(400, "answerInlineQuery: inline query not found");
+    }
+    if (this.answeredInlineQueries.has(queryId)) {
+      return errorResult(400, "answerInlineQuery: inline query was already answered");
+    }
+    if (!ctx.captureInlineAnswer) {
+      return errorResult(500, "answerInlineQuery: inline answer capture is unavailable");
+    }
+    const results = normalizeInlineResults(p?.results);
+    if (results instanceof Error) return errorResult(400, results.message);
+    if (results.length === 0) return errorResult(400, "answerInlineQuery: results are required");
+
+    const answer: PlatformInlineQueryAnswer = {
+      queryId,
+      results,
+      ...(toOptionalInteger(p?.cache_time) !== undefined
+        ? { cacheTime: toOptionalInteger(p?.cache_time) }
+        : {}),
+      ...(toOptionalBoolean(p?.is_personal) !== undefined
+        ? { isPersonal: toOptionalBoolean(p?.is_personal) }
+        : {}),
+      ...(typeof p?.next_offset === "string" ? { nextOffset: p.next_offset } : {}),
+    };
+    ctx.captureInlineAnswer(answer);
+    this.answeredInlineQueries.add(queryId);
+    return { ok: true, result: true };
   }
 
   private handleGetMe(): TelegramResult<TelegramWireUser> {
@@ -454,8 +535,68 @@ function actionsFromMarkup(
       id: button.callback_data ?? "",
       url: button.url ?? "",
       ...(button.copy_text?.text ? { copyText: button.copy_text.text } : {}),
+      ...(button.switch_inline_query_chosen_chat !== undefined
+        ? {
+            opensInlineQuery: true,
+            inlineQuery: button.switch_inline_query_chosen_chat.query ?? "",
+          }
+        : button.switch_inline_query !== undefined
+          ? { opensInlineQuery: true, inlineQuery: button.switch_inline_query }
+          : button.switch_inline_query_current_chat !== undefined
+            ? { opensInlineQuery: true, inlineQuery: button.switch_inline_query_current_chat }
+            : {}),
     })),
   );
+}
+
+function normalizeInlineResults(raw: unknown): readonly PlatformInlineQueryResult[] | Error {
+  let value = raw;
+  if (typeof raw === "string") {
+    try {
+      value = JSON.parse(raw) as unknown;
+    } catch (cause) {
+      return new Error(`answerInlineQuery: invalid results: ${asError(cause).message}`);
+    }
+  }
+  if (!Array.isArray(value)) {
+    return new Error("answerInlineQuery: results are required");
+  }
+  const results: PlatformInlineQueryResult[] = [];
+  for (let i = 0; i < value.length; i++) {
+    const wire = asRecord(value[i]);
+    const type = typeof wire?.type === "string" ? wire.type : "";
+    const id = typeof wire?.id === "string" ? wire.id : "";
+    if (!type) return new Error(`answerInlineQuery: result ${i} type is required`);
+    if (!id) return new Error(`answerInlineQuery: result ${i} id is required`);
+    const photoUrl = typeof wire?.photo_url === "string" ? wire.photo_url : "";
+    if (type === "photo" && !photoUrl) {
+      return new Error(`answerInlineQuery: photo result ${i} photo_url is required`);
+    }
+    const input = asRecord(wire?.input_message_content);
+    const messageText =
+      typeof input?.message_text === "string"
+        ? input.message_text
+        : input?.rich_message !== undefined
+          ? richMessageText(input.rich_message)
+          : "";
+    const markup = asInlineKeyboardMarkup(wire?.reply_markup);
+    results.push({
+      type,
+      id,
+      ...(typeof wire?.title === "string" ? { title: wire.title } : {}),
+      ...(typeof wire?.description === "string" ? { description: wire.description } : {}),
+      ...(messageText ? { text: messageText } : {}),
+      ...(photoUrl ? { photoUrl } : {}),
+      ...(typeof wire?.thumbnail_url === "string"
+        ? { thumbnailUrl: wire.thumbnail_url }
+        : typeof wire?.thumb_url === "string"
+          ? { thumbnailUrl: wire.thumb_url }
+          : {}),
+      ...(typeof wire?.caption === "string" ? { caption: wire.caption } : {}),
+      ...(markup ? { actions: actionsFromMarkup(markup) } : {}),
+    });
+  }
+  return results;
 }
 
 function richMessageText(value: unknown): string {
@@ -538,6 +679,7 @@ function toWireUser(user: TelegramUser, isBot: boolean): TelegramWireUser {
     first_name: user.firstName,
     ...(user.lastName !== undefined ? { last_name: user.lastName } : {}),
     ...(user.username !== undefined ? { username: user.username } : {}),
+    ...(user.languageCode !== undefined ? { language_code: user.languageCode } : {}),
   };
 }
 
@@ -547,6 +689,26 @@ function unixSeconds(date: Date): number {
 
 function asRecord(value: unknown): Record<string, unknown> | undefined {
   return typeof value === "object" && value !== null ? (value as Record<string, unknown>) : undefined;
+}
+
+function asError(value: unknown): Error {
+  return value instanceof Error ? value : new Error(String(value));
+}
+
+function toOptionalInteger(value: unknown): number | undefined {
+  if (typeof value === "number" && Number.isInteger(value)) return value;
+  if (typeof value === "string" && value.trim() !== "") {
+    const parsed = Number(value);
+    if (Number.isInteger(parsed)) return parsed;
+  }
+  return undefined;
+}
+
+function toOptionalBoolean(value: unknown): boolean | undefined {
+  if (typeof value === "boolean") return value;
+  if (value === "true") return true;
+  if (value === "false") return false;
+  return undefined;
 }
 
 /** Parses a Bot API `chat_id` (number or numeric string); `0`/missing is treated as absent, matching Emulator. */

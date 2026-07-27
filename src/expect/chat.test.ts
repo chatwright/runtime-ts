@@ -105,6 +105,91 @@ describe("Chat: developer callback submission", () => {
   });
 });
 
+describe("Chat: Telegram user locale", () => {
+  it("keeps language_code on text, callback, and inline-query updates", async () => {
+    const { session, host, bot } = wire();
+    cleanups.push(() => {
+      host.close();
+      bot.close();
+    });
+    bot.sendHello();
+    await flushMacrotasks();
+
+    const chat = chatOf(session, 42, {
+      id: 7,
+      firstName: "Алиса",
+      username: "alisa",
+      languageCode: "ru",
+    });
+    chat.sendText("/pref");
+    chat.submitCallback(1, "pref?a=players");
+    chat.sendInlineQuery("preferans:invite:game-42");
+    await flushMacrotasks();
+
+    const updates = bot.updates().map((envelope) => envelope.payload as {
+      message?: { from?: { language_code?: string } };
+      callback_query?: { from?: { language_code?: string } };
+      inline_query?: { from?: { language_code?: string } };
+    });
+    expect(updates).toHaveLength(3);
+    expect(updates[0]?.message?.from?.language_code).toBe("ru");
+    expect(updates[1]?.callback_query?.from?.language_code).toBe("ru");
+    expect(updates[2]?.inline_query?.from?.language_code).toBe("ru");
+  });
+});
+
+describe("Chat: inline photo invitation", () => {
+  it("submits inline_query and exposes the answerInlineQuery photo/share card", async () => {
+    const { session, host, bot } = wire();
+    cleanups.push(() => {
+      host.close();
+      bot.close();
+    });
+    bot.sendHello();
+    await flushMacrotasks();
+
+    const chat = chatOf(session, 42, { id: 7, firstName: "Alice" });
+    const inline = chat.sendInlineQuery("preferans:invite:game-42");
+    await flushMacrotasks();
+    const update = bot.updates()[0];
+    expect(update?.kind).toBe("update");
+    const payload = update?.kind === "update"
+      ? update.payload as { inline_query?: { id: string; query: string } }
+      : {};
+    expect(payload.inline_query?.query).toBe("preferans:invite:game-42");
+
+    bot.call("inline-answer", "answerInlineQuery", {
+      inline_query_id: payload.inline_query?.id,
+      is_personal: true,
+      results: [{
+        type: "photo",
+        id: "invite-42",
+        photo_url: "https://sneat.games/preferans-invite.jpg",
+        caption: "Alice invited you · 🪙 50 · ⏱ 60 seconds",
+        reply_markup: {
+          inline_keyboard: [[
+            { text: "🃏 Join table", url: "https://t.me/SneatBot?start=pref_42" },
+          ]],
+        },
+      }],
+    });
+    await flushMacrotasks();
+
+    await inline.expectResultCount(1);
+    const answer = await inline.snapshot();
+    expect(answer.results[0]).toMatchObject({
+      type: "photo",
+      id: "invite-42",
+      photoUrl: "https://sneat.games/preferans-invite.jpg",
+      caption: "Alice invited you · 🪙 50 · ⏱ 60 seconds",
+      actions: [[{
+        label: "🃏 Join table",
+        url: "https://t.me/SneatBot?start=pref_42",
+      }]],
+    });
+  });
+});
+
 describe("Chat: expectBotMessage timeout", () => {
   it("rejects with a transcript-bearing Error when no reply arrives in time", async () => {
     const { session, host, bot } = wire();

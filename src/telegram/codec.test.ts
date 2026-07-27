@@ -57,6 +57,82 @@ describe("TelegramCodec.buildTextUpdate / buildCallbackUpdate", () => {
       fromId: 7,
     });
   });
+
+  it("includes the user's language_code in message, callback, and inline-query updates", () => {
+    const codec = new TelegramCodec(fixedClock("2026-07-23T10:00:00.000Z"));
+    const journal = new InMemoryJournal();
+    const user = { id: 7, firstName: "Алиса", username: "alisa", languageCode: "ru" };
+
+    const message = codec.buildTextUpdate(42, user, "/pref", journal);
+    const callback = codec.buildCallbackUpdate(42, user, 1, "pref?a=players", journal);
+    const inline = codec.buildInlineQueryUpdate(user, "preferans:invite:game-42", "");
+
+    expect(message.message?.from.language_code).toBe("ru");
+    expect(callback.callback_query?.from.language_code).toBe("ru");
+    expect(inline.update.inline_query?.from.language_code).toBe("ru");
+  });
+
+  it("builds an inline_query update and captures a photo answer", () => {
+    const codec = new TelegramCodec(fixedClock("2026-07-23T10:00:00.000Z"));
+    const journal = new InMemoryJournal();
+    const built = codec.buildInlineQueryUpdate(
+      { id: 7, firstName: "Alice", username: "alice" },
+      "preferans:invite:game-42",
+      "",
+    );
+    expect(built.queryId).toBe("iq1");
+    expect(built.update.inline_query).toMatchObject({
+      id: "iq1",
+      query: "preferans:invite:game-42",
+      offset: "",
+      from: { id: 7, first_name: "Alice", username: "alice" },
+    });
+
+    let captured: unknown;
+    const answer = codec.handleCall(
+      "answerInlineQuery",
+      {
+        inline_query_id: built.queryId,
+        is_personal: true,
+        results: [{
+          type: "photo",
+          id: "invite-42",
+          title: "Join Alice's Preferans table",
+          photo_url: "https://sneat.games/preferans-invite.jpg",
+          thumbnail_url: "https://sneat.games/preferans-invite-thumb.jpg",
+          caption: "Alice invited you · 🪙 50 · ⏱ 60 seconds",
+          reply_markup: {
+            inline_keyboard: [[
+              { text: "🃏 Join table", url: "https://t.me/SneatBot?start=pref_42" },
+            ]],
+          },
+        }],
+      },
+      {
+        journalFor: () => journal,
+        captureInlineAnswer: (value) => { captured = value; },
+      },
+    );
+
+    expect(answer).toEqual({ ok: true, result: true });
+    expect(captured).toEqual({
+      queryId: "iq1",
+      isPersonal: true,
+      results: [{
+        type: "photo",
+        id: "invite-42",
+        title: "Join Alice's Preferans table",
+        photoUrl: "https://sneat.games/preferans-invite.jpg",
+        thumbnailUrl: "https://sneat.games/preferans-invite-thumb.jpg",
+        caption: "Alice invited you · 🪙 50 · ⏱ 60 seconds",
+        actions: [[{
+          label: "🃏 Join table",
+          id: "",
+          url: "https://t.me/SneatBot?start=pref_42",
+        }]],
+      }],
+    });
+  });
 });
 
 describe("TelegramCodec.handleCall: sendMessage", () => {
@@ -114,6 +190,39 @@ describe("TelegramCodec.handleCall: sendMessage", () => {
     expect(missingText).toEqual({ ok: false, error_code: 400, description: "sendMessage: text is required" });
 
     expect(journal.entries()).toHaveLength(0);
+  });
+
+  it("normalizes a switch_inline_query_chosen_chat button as an inline-share action", () => {
+    const codec = new TelegramCodec(fixedClock("2026-07-23T10:00:01.000Z"));
+    const journal = new InMemoryJournal();
+
+    codec.handleCall(
+      "sendMessage",
+      {
+        chat_id: 42,
+        text: "Invite a friend",
+        reply_markup: {
+          inline_keyboard: [[{
+            text: "📨 Choose friend",
+            switch_inline_query_chosen_chat: {
+              query: "preferans:invite:game-42",
+              allow_user_chats: true,
+            },
+          }]],
+        },
+      },
+      contextFor(journal),
+    );
+
+    expect(journal.entries()[0]?.actions).toEqual([[
+      {
+        label: "📨 Choose friend",
+        id: "",
+        url: "",
+        opensInlineQuery: true,
+        inlineQuery: "preferans:invite:game-42",
+      },
+    ]]);
   });
 });
 
