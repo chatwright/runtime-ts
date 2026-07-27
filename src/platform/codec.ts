@@ -26,7 +26,7 @@
  * a full description of either codec.
  */
 
-import type { Journal } from "../journal/journal.js";
+import type { Journal, JournalAction } from "../journal/journal.js";
 
 /**
  * What a {@link PlatformCodec.handleCall} implementation needs from its
@@ -37,6 +37,36 @@ import type { Journal } from "../journal/journal.js";
 export interface PlatformCallContext {
   /** Returns (creating if necessary) the journal for a given chat id. */
   readonly journalFor: (chatId: number) => Journal;
+  /** Retains a chat-independent inline-mode answer for scenario observation. */
+  readonly captureInlineAnswer?: (answer: PlatformInlineQueryAnswer) => void;
+}
+
+/** One normalized result from a platform-native inline query. */
+export interface PlatformInlineQueryResult {
+  readonly type: string;
+  readonly id: string;
+  readonly title?: string;
+  readonly description?: string;
+  readonly text?: string;
+  readonly photoUrl?: string;
+  readonly thumbnailUrl?: string;
+  readonly caption?: string;
+  readonly actions?: readonly (readonly JournalAction[])[];
+}
+
+/** The normalized observable value of a platform-native inline answer. */
+export interface PlatformInlineQueryAnswer {
+  readonly queryId: string;
+  readonly results: readonly PlatformInlineQueryResult[];
+  readonly cacheTime?: number;
+  readonly isPersonal?: boolean;
+  readonly nextOffset?: string;
+}
+
+/** A platform-native inline query update plus its correlation identifier. */
+export interface PlatformInlineQueryUpdate {
+  readonly queryId: string;
+  readonly update: unknown;
 }
 
 /**
@@ -65,6 +95,7 @@ export interface PlatformUser {
   readonly firstName: string;
   readonly lastName?: string;
   readonly username?: string;
+  readonly languageCode?: string;
 }
 
 /**
@@ -108,6 +139,13 @@ export interface PlatformCodec {
     actionId: string,
     journal: Journal,
   ): unknown;
+
+  /** Builds a platform-native inline-query update, when the platform supports inline mode. */
+  buildInlineQueryUpdate?(
+    user: PlatformUser,
+    query: string,
+    offset: string,
+  ): PlatformInlineQueryUpdate;
 
   /** Parses and answers one platform method call, journalling the outbound entry (or an `"uncaptured"` entry for anything unsupported). */
   handleCall(method: string, params: unknown, ctx: PlatformCallContext): unknown;
