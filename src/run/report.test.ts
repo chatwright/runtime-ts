@@ -73,10 +73,10 @@ describe("assembleReport", () => {
       goal,
       campaign: snapshot({ statuses: { t: "completed" }, steps: 2 }),
       events,
-      callerFindings: [{ kind: "verified-defect", taskId: "t", summary: "wrong reply", evidence: {}, confidence: "dtql-verified" }],
+      callerFindings: [{ kind: "verified-defect", taskId: "t", summary: "wrong reply", evidence: {}, confidence: "tugql-verified" }],
     });
     expect(report.usage).toEqual({ inputTokens: 16, outputTokens: 6, callCount: 2 });
-    expect(report.findings.at(-1)).toMatchObject({ kind: "verified-defect", confidence: "dtql-verified" });
+    expect(report.findings.at(-1)).toMatchObject({ kind: "verified-defect", confidence: "tugql-verified" });
     expect(report.goalTitle).toBe("Goal");
   });
 });

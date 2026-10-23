@@ -13,7 +13,7 @@
  * Each assertion evaluates against the journal to a
  * {@link AssertionVerdict} — `"pass"`, `"fail"`, or `"unverified"` — with a
  * human-readable diagnostic naming the expected value, the actual value and
- * which turn it concerned. Side-effect assertions (`data-state`, the DTQL
+ * which turn it concerned. Side-effect assertions (`data-state`, the TugQL
  * family) evaluate to `"unverified"` in the browser runtime with a
  * browser-limitation reason; a companion-server verifier can be plugged in
  * through {@link EvaluateOptions.verifier}.
@@ -77,7 +77,7 @@ export interface WithinAssertion extends TargetedAssertion {
 }
 
 /**
- * A side-effect (application-state / DTQL) assertion. Not verifiable by the
+ * A side-effect (application-state / TugQL) assertion. Not verifiable by the
  * browser runtime alone — evaluates to `"unverified"` unless an
  * {@link EvaluateOptions.verifier} resolves it.
  */
