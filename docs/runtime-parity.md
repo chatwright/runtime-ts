@@ -119,7 +119,7 @@ deliberate deviations, on top of the foundation ones above:
    preserves its **semantics** (`text-equals`/`text-contains`/`text-matches`/
    `expects-action`/`edited`/`within`) as plain serialisable assertion objects,
    targeting a bot message by 1-based `botTurn` ordinal. Each yields
-   `pass | fail | unverified` with a diagnostic. Side-effect (`data-state`/DTQL)
+   `pass | fail | unverified` with a diagnostic. Side-effect (`data-state`/TugQL)
    assertions evaluate to `unverified` with a browser-limitation reason unless a
    pluggable `SideEffectVerifier` (the companion-server seam) resolves them.
 
